@@ -10,6 +10,16 @@ import io.flutter.plugin.common.MethodChannel.Result
 class AnimSvgPlugin :
     FlutterPlugin,
     MethodCallHandler {
+    companion object {
+        init {
+            // Load the Rust core shared object so Dart's
+            // DynamicLibrary.open("libanim_svg_core.so") resolves. Done at
+            // plugin-class init time, which happens before any Dart code
+            // runs inside the plugin.
+            System.loadLibrary("anim_svg_core")
+        }
+    }
+
     // The MethodChannel that will the communication between Flutter and native Android
     //
     // This local reference serves to register the plugin with the Flutter Engine and unregister it

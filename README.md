@@ -10,12 +10,20 @@
 
 ```text
 ┌──────────────────────────────────────────┐   ┌────────────────────┐   ┌─────────────────────┐
-│  SVG                                     │   │  Dart transpiler   │   │  thorvg             │
-│   • SMIL (<animate>, <animateTransform>) │──▶│  (pure Dart)       │──▶│  (native C++        │
-│   • CSS @keyframes                       │   │  → Lottie JSON     │   │   Lottie renderer)  │
-│   • Svgator <script> payload             │   │                    │   │                     │
-└──────────────────────────────────────────┘   └────────────────────┘   └─────────────────────┘
+│  SVG                                     │   │  Transpiler        │   │  thorvg             │
+│   • SMIL (<animate>, <animateTransform>) │──▶│  Dart (current)    │──▶│  (native C++        │
+│   • CSS @keyframes                       │   │  Rust (opt-in,     │   │   Lottie renderer)  │
+│   • Svgator <script> payload             │   │  parity rollout)   │   │                     │
+└──────────────────────────────────────────┘   │  → Lottie JSON     │   └─────────────────────┘
+                                               └────────────────────┘
 ```
+
+A native Rust implementation (`native/anim_svg_core`) is being ported in
+parallel with the Dart converter. During rollout both paths coexist
+behind a feature flag (`ConvertSvgToLottie(useRustBackend: true)`); the
+Dart path stays as a reference oracle until parity tests pass on every
+fixture. See [ADR-024](brain/adr.md#adr-024-native-rust-core-via-raw-dart-ffi-anim_svg_core)
+for the rationale.
 
 ## Why
 

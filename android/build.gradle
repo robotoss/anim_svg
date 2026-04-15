@@ -45,6 +45,27 @@ android {
 
     defaultConfig {
         minSdk = 24
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
+        }
+    }
+
+    sourceSets {
+        main.jniLibs.srcDirs += file('src/main/jniLibs')
+    }
+
+    // Build the Rust core before javac runs so the jniLibs directory is
+    // populated. Skipped when artifacts are already present (set
+    // FORCE_RUST_REBUILD=1 to override). Requires cargo-ndk on PATH.
+    tasks.register('buildRustCore', Exec) {
+        workingDir = project.rootDir.parentFile ?: project.rootDir
+        commandLine './tool/prepare_rust.sh', 'android'
+        environment 'FORCE_RUST_REBUILD', System.getenv('FORCE_RUST_REBUILD') ?: '0'
+    }
+    tasks.whenTaskAdded { task ->
+        if (task.name == 'preBuild' || task.name == 'mergeDebugJniLibFolders' || task.name == 'mergeReleaseJniLibFolders') {
+            task.dependsOn 'buildRustCore'
+        }
     }
 
     dependencies {
