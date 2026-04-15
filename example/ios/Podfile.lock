@@ -1,0 +1,34 @@
+PODS:
+  - anim_svg (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - integration_test (0.0.1):
+    - Flutter
+  - thorvg (1.0.0-beta.0):
+    - Flutter
+
+DEPENDENCIES:
+  - anim_svg (from `.symlinks/plugins/anim_svg/ios`)
+  - Flutter (from `Flutter`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - thorvg (from `.symlinks/plugins/thorvg/ios`)
+
+EXTERNAL SOURCES:
+  anim_svg:
+    :path: ".symlinks/plugins/anim_svg/ios"
+  Flutter:
+    :path: Flutter
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+  thorvg:
+    :path: ".symlinks/plugins/thorvg/ios"
+
+SPEC CHECKSUMS:
+  anim_svg: 0736dc9b2ef930c5171cf6ad3ca12351d3bc3dd9
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  thorvg: 0c1dc90626b12a33b96de05fe2fc25fc57b634db
+
+PODFILE CHECKSUM: 0091b886cb3bc27900ba3c0080d61b1b5365e47c
+
+COCOAPODS: 1.16.2
