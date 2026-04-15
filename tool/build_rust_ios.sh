@@ -24,8 +24,16 @@ HEADERS_SRC="$CRATE_DIR/include"
 TARGETS=(
   aarch64-apple-ios
   aarch64-apple-ios-sim
-  x86_64-apple-ios-sim
 )
+
+# Xcode's default ARCHS for iphonesimulator is `arm64 x86_64` even on Apple
+# Silicon hosts (so Rosetta-only simulators still link). The xcframework
+# install step rejects the whole framework if any listed arch is missing,
+# so we always produce an x86_64 simulator slice and lipo it into the
+# simulator archive. Set WITH_X86_SIM=0 to skip (arm64-only dev loop).
+if [ "${WITH_X86_SIM:-1}" = "1" ]; then
+  TARGETS+=(x86_64-apple-ios)
+fi
 
 PROFILE="${PROFILE:-release}"
 CARGO_PROFILE_FLAG="--release"
@@ -46,14 +54,17 @@ done
 
 DEVICE_LIB="$CRATE_DIR/target/aarch64-apple-ios/$PROFILE/libanim_svg_core.a"
 SIM_ARM="$CRATE_DIR/target/aarch64-apple-ios-sim/$PROFILE/libanim_svg_core.a"
-SIM_X86="$CRATE_DIR/target/x86_64-apple-ios-sim/$PROFILE/libanim_svg_core.a"
 
-SIM_COMBINED_DIR="$CRATE_DIR/target/ios-sim-universal/$PROFILE"
-SIM_COMBINED="$SIM_COMBINED_DIR/libanim_svg_core.a"
-mkdir -p "$SIM_COMBINED_DIR"
-
-echo "[build_rust_ios] combining simulator slices with lipo"
-lipo -create "$SIM_ARM" "$SIM_X86" -output "$SIM_COMBINED"
+if [ "${WITH_X86_SIM:-1}" = "1" ]; then
+  SIM_X86="$CRATE_DIR/target/x86_64-apple-ios/$PROFILE/libanim_svg_core.a"
+  SIM_COMBINED_DIR="$CRATE_DIR/target/ios-sim-universal/$PROFILE"
+  SIM_COMBINED="$SIM_COMBINED_DIR/libanim_svg_core.a"
+  mkdir -p "$SIM_COMBINED_DIR"
+  echo "[build_rust_ios] combining simulator slices with lipo"
+  lipo -create "$SIM_ARM" "$SIM_X86" -output "$SIM_COMBINED"
+else
+  SIM_COMBINED="$SIM_ARM"
+fi
 
 rm -rf "$XCF_PATH"
 mkdir -p "$OUT_DIR"

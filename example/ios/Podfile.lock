@@ -24,7 +24,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/thorvg/ios"
 
 SPEC CHECKSUMS:
-  anim_svg: 0736dc9b2ef930c5171cf6ad3ca12351d3bc3dd9
+  anim_svg: 0d75f49ace779ca263e50e8c705f823ef574d095
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
   thorvg: a8b58d5744af4cbfce62a702b69799fe4671ac3d

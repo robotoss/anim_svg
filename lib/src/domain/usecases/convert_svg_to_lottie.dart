@@ -21,7 +21,7 @@ class ConvertSvgToLottie {
     SvgToLottieMapper? mapper,
     LottieSerializer? serializer,
     AnimSvgLogger? logger,
-    this.useRustBackend = false,
+    this.useRustBackend = true,
     RustConverter? rustConverter,
   })  : _log = logger ?? SilentLogger(),
         _parser = parser ?? SvgParser(logger: logger),

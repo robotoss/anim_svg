@@ -31,7 +31,7 @@ class AnimSvgView extends StatefulWidget {
     this.placeholderBuilder,
     this.logger,
     this.onLottieReady,
-    this.useRustBackend = false,
+    this.useRustBackend = true,
   });
 
   factory AnimSvgView.asset(
@@ -46,7 +46,7 @@ class AnimSvgView extends StatefulWidget {
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
-    bool useRustBackend = false,
+    bool useRustBackend = true,
   }) {
     return AnimSvgView._(
       key: key,
@@ -77,7 +77,7 @@ class AnimSvgView extends StatefulWidget {
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
-    bool useRustBackend = false,
+    bool useRustBackend = true,
   }) {
     return AnimSvgView._(
       key: key,
