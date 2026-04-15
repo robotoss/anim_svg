@@ -4,6 +4,7 @@
 //! fixed envelope with an `unsupported_feature` error. Real pipeline
 //! lands in later phases.
 
+pub mod domain;
 pub mod envelope;
 pub mod error;
 pub mod ffi;
