@@ -10,3 +10,4 @@ pub mod data_uri;
 pub mod path_data;
 pub mod svgator;
 pub mod transform;
+pub mod xml;
