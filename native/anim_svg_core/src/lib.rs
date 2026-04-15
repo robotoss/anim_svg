@@ -9,6 +9,7 @@ pub mod envelope;
 pub mod error;
 pub mod ffi;
 pub mod log;
+pub mod parse;
 
 pub use envelope::ConvertEnvelope;
 pub use error::{ConvertError, ErrorKind};
