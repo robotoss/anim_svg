@@ -15,6 +15,9 @@ export 'src/domain/entities/svg_transform.dart';
 
 export 'src/domain/usecases/convert_svg_to_lottie.dart';
 
+export 'src/data/ffi/rust_convert_envelope.dart';
+export 'src/data/ffi/rust_converter.dart';
+
 export 'src/data/parsers/data_uri_decoder.dart';
 export 'src/data/parsers/svg_animation_parser.dart';
 export 'src/data/parsers/svg_css_parser.dart';

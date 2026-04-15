@@ -31,6 +31,7 @@ class AnimSvgView extends StatefulWidget {
     this.placeholderBuilder,
     this.logger,
     this.onLottieReady,
+    this.useRustBackend = false,
   });
 
   factory AnimSvgView.asset(
@@ -45,6 +46,7 @@ class AnimSvgView extends StatefulWidget {
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
+    bool useRustBackend = false,
   }) {
     return AnimSvgView._(
       key: key,
@@ -59,6 +61,7 @@ class AnimSvgView extends StatefulWidget {
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
+      useRustBackend: useRustBackend,
     );
   }
 
@@ -74,6 +77,7 @@ class AnimSvgView extends StatefulWidget {
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
+    bool useRustBackend = false,
   }) {
     return AnimSvgView._(
       key: key,
@@ -88,6 +92,7 @@ class AnimSvgView extends StatefulWidget {
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
+      useRustBackend: useRustBackend,
     );
   }
 
@@ -106,6 +111,10 @@ class AnimSvgView extends StatefulWidget {
   final Widget Function(BuildContext)? placeholderBuilder;
   final AnimSvgLogger? logger;
   final void Function(Uint8List lottieBytes)? onLottieReady;
+
+  /// Opt into the native Rust converter (`anim_svg_core`). Default is the
+  /// Dart pipeline; flipping this flag routes `convertToJson` through FFI.
+  final bool useRustBackend;
 
   @override
   State<AnimSvgView> createState() => _AnimSvgViewState();
@@ -162,14 +171,33 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
         'head': _head(svg),
       });
 
-      final converter = ConvertSvgToLottie(logger: log);
-      final lottie = converter.convert(svg);
-      if (lottie.layers.isEmpty) {
-        log.warn('widget', 'conversion produced zero layers → placeholder',
-            fields: {'source': widget.sourceLabel});
-        return _PipelineOutput(Uint8List(0), 0);
+      final converter =
+          ConvertSvgToLottie(logger: log, useRustBackend: widget.useRustBackend);
+      final int layerCount;
+      final String jsonStr;
+      if (widget.useRustBackend) {
+        final envelope = converter.convertToEnvelope(svg);
+        final lottieMap = envelope.lottie;
+        final layers = lottieMap is Map<String, Object?>
+            ? lottieMap['layers']
+            : null;
+        layerCount = layers is List ? layers.length : 0;
+        if (layerCount == 0) {
+          log.warn('widget', 'conversion produced zero layers → placeholder',
+              fields: {'source': widget.sourceLabel});
+          return _PipelineOutput(Uint8List(0), 0);
+        }
+        jsonStr = envelope.lottieJson;
+      } else {
+        final lottie = converter.convert(svg);
+        layerCount = lottie.layers.length;
+        if (lottie.layers.isEmpty) {
+          log.warn('widget', 'conversion produced zero layers → placeholder',
+              fields: {'source': widget.sourceLabel});
+          return _PipelineOutput(Uint8List(0), 0);
+        }
+        jsonStr = converter.convertToJson(svg);
       }
-      final jsonStr = converter.convertToJson(svg);
       // package:thorvg 1.0 decodes the buffer twice: `String.fromCharCodes`
       // to feed `jsonDecode` (for layer size) and then again for native
       // FFI. Any trailing byte past the closing `}` — e.g. a NUL padding —
@@ -179,10 +207,10 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
       // SvgToLottieMapper is sufficient on its own.
       final bytes = Uint8List.fromList(utf8.encode(jsonStr));
       log.info('widget', 'lottie ready',
-          fields: {'json_bytes': bytes.length, 'layers': lottie.layers.length});
+          fields: {'json_bytes': bytes.length, 'layers': layerCount});
 
       widget.onLottieReady?.call(bytes);
-      return _PipelineOutput(bytes, lottie.layers.length);
+      return _PipelineOutput(bytes, layerCount);
     } catch (e, s) {
       _lastStack = s;
       log.error('widget', 'pipeline failed',
