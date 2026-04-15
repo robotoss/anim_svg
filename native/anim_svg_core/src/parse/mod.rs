@@ -5,6 +5,8 @@
 //! (the top-level SVG walker).
 
 pub mod animation;
+pub mod css;
 pub mod data_uri;
 pub mod path_data;
+pub mod svgator;
 pub mod transform;
