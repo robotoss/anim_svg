@@ -14,6 +14,15 @@ Pod::Spec.new do |s|
   s.platform         = :ios, '11.0'
   s.swift_version    = '5.0'
 
+  # CocoaPods source_files globs do not follow symlinks nor `..` paths.
+  # Materialize hard-link mirrors of the wrapper sources and the thorvg
+  # engine into this directory before pod install evaluates source_files.
+  s.prepare_command = <<-CMD
+    rm -rf plugin_src thorvg_ext
+    cp -Rl ../src plugin_src
+    cp -Rl ../thorvg thorvg_ext
+  CMD
+
   s.source_files = [
     'Classes/**/*.{m,h}',
     'config.h',

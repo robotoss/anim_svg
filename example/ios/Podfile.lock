@@ -27,7 +27,7 @@ SPEC CHECKSUMS:
   anim_svg: 0736dc9b2ef930c5171cf6ad3ca12351d3bc3dd9
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  thorvg: ccd9f873ed8b3918d282ba0a0c8881095007955d
+  thorvg: a8b58d5744af4cbfce62a702b69799fe4671ac3d
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
 
