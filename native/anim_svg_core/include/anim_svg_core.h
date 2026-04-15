@@ -9,6 +9,39 @@
 #include <stdlib.h>
 
 /**
+ * Default Lottie frame rate if no override is supplied (parity with Dart
+ * `DisplayMapper({this.frameRate = 60})`).
+ */
+#define DEFAULT_FRAME_RATE 60.0
+
+/**
+ * Linear sub-divisions per cubic bezier segment used for length
+ * estimation and sampling. 32 keeps per-point error well under 0.5px
+ * for paths up to a few hundred pixels long.
+ */
+#define DEFAULT_SAMPLES_PER_SEGMENT 32
+
+/**
+ * Default max chain depth. thorvg's Lottie renderer starts degrading past
+ * ~8 parents; we leave headroom for the leaf and an outer static-transform
+ * carrier.
+ */
+#define DEFAULT_MAX_DEPTH 6
+
+/**
+ * Tolerance for comparing `durSeconds` across ancestors. AE/Figma exports
+ * sometimes round to 3 decimal places.
+ */
+#define DEFAULT_DUR_EPSILON 1e-3
+
+/**
+ * Soft recursion limit mirroring the Dart side. Chains deeper than this
+ * are almost always cyclic (`<use>` pointing at itself via a `<g>`), so
+ * we log and stop.
+ */
+#define MAX_DEPTH 32
+
+/**
  * Per-call options. `log_level` is a NUL-terminated ASCII string; null
  * means "info". `reserved` is 0-filled for future expansion.
  */
@@ -16,6 +49,10 @@ typedef struct {
     const char *log_level;
     uint32_t reserved;
 } AnimSvgConvertOptions;
+
+
+
+
 
 #ifdef __cplusplus
 extern "C" {

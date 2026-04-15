@@ -110,7 +110,10 @@ unsafe fn build_options(opts: *const AnimSvgConvertOptions) -> ConvertOptions {
             .and_then(LogLevel::from_str)
             .unwrap_or_default()
     };
-    ConvertOptions { log_level }
+    ConvertOptions {
+        log_level,
+        ..ConvertOptions::default()
+    }
 }
 
 fn envelope_for_error(err: ConvertError) -> ConvertEnvelope {

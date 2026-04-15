@@ -12,5 +12,6 @@ pub mod opacity;
 pub mod opacity_merge;
 pub mod raster_transcoder;
 pub mod shape;
+pub mod svg_to_lottie;
 pub mod transform_map;
 pub mod use_flatten;

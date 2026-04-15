@@ -28,27 +28,52 @@ pub fn convert(svg: &str, options: ConvertOptions) -> ConvertEnvelope {
     let mut logs = LogCollector::new(options.log_level);
     logs.info("convert", "start", &[("svg_bytes", svg.len().into())]);
 
-    // Phase 1 stub: no pipeline yet.
-    let error = ConvertError::unsupported_feature(
-        "converter_pipeline",
-        "native pipeline not yet implemented (phase 1 scaffold)",
-    );
-    logs.warn(
+    let doc = match parse::xml::parse(svg, &mut logs) {
+        Ok(d) => d,
+        Err(error) => {
+            return ConvertEnvelope {
+                lottie: serde_json::Value::Null,
+                svg_raw: serde_json::Value::Null,
+                logs: logs.into_entries(),
+                error: Some(error),
+            };
+        }
+    };
+
+    let svg_raw = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
+
+    let lottie_doc = map::svg_to_lottie::map(doc, options.frame_rate, &mut logs);
+    let lottie = serialize::lottie::serialize(&lottie_doc);
+
+    logs.info(
         "convert",
-        "native pipeline not yet implemented",
-        &[("phase", "1".into())],
+        "done",
+        &[
+            ("layers", (lottie_doc.layers.len() as u64).into()),
+            ("assets", (lottie_doc.assets.len() as u64).into()),
+        ],
     );
 
     ConvertEnvelope {
-        lottie: serde_json::Value::Null,
-        svg_raw: serde_json::Value::Null,
+        lottie,
+        svg_raw,
         logs: logs.into_entries(),
-        error: Some(error),
+        error: None,
     }
 }
 
 /// Options for a single conversion call.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ConvertOptions {
     pub log_level: LogLevel,
+    pub frame_rate: f64,
+}
+
+impl Default for ConvertOptions {
+    fn default() -> Self {
+        Self {
+            log_level: LogLevel::default(),
+            frame_rate: 60.0,
+        }
+    }
 }
