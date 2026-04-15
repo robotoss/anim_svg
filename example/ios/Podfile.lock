@@ -4,7 +4,7 @@ PODS:
   - Flutter (1.0.0)
   - integration_test (0.0.1):
     - Flutter
-  - thorvg (1.0.0-beta.0):
+  - thorvg (1.0.0-src):
     - Flutter
 
 DEPENDENCIES:
@@ -27,8 +27,8 @@ SPEC CHECKSUMS:
   anim_svg: 0736dc9b2ef930c5171cf6ad3ca12351d3bc3dd9
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  thorvg: 0c1dc90626b12a33b96de05fe2fc25fc57b634db
+  thorvg: a8b58d5744af4cbfce62a702b69799fe4671ac3d
 
-PODFILE CHECKSUM: 0091b886cb3bc27900ba3c0080d61b1b5365e47c
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
 
 COCOAPODS: 1.16.2

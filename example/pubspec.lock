@@ -439,12 +439,11 @@ packages:
     source: hosted
     version: "0.7.7"
   thorvg:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: thorvg
-      sha256: "05e23bee996c281468402adeb634c8fd8f6ce4f9f0da57f23a032b0d491ac3ad"
-      url: "https://pub.dev"
-    source: hosted
+      path: "../thorvg.flutter"
+      relative: true
+    source: path
     version: "1.0.0"
   typed_data:
     dependency: transitive

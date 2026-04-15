@@ -30,6 +30,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.1.0
 
+dependency_overrides:
+  thorvg:
+    path: ../thorvg.flutter
+
 dev_dependencies:
   integration_test:
     sdk: flutter
