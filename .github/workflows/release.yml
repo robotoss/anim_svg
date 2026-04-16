@@ -1,0 +1,113 @@
+name: Release prebuilt native artifacts
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pubspec.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pubspec
+        run: |
+          version="$(awk '/^version:/ {print $2; exit}' pubspec.yaml)"
+          tag="${GITHUB_REF_NAME}"
+          if [ "v${version}" != "${tag}" ]; then
+            echo "::error::pubspec version (${version}) does not match tag (${tag})"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  build-ios:
+    needs: meta
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust targets
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - name: Build xcframework
+        run: ./tool/build_rust_ios.sh
+      - name: Package xcframework
+        id: pkg
+        run: |
+          version="${{ needs.meta.outputs.version }}"
+          asset="anim_svg_core-${version}-ios.zip"
+          (cd ios/Frameworks && zip -qry "../../${asset}" anim_svg_core.xcframework)
+          shasum -a 256 "${asset}" | awk '{print $1}' > "${asset}.sha256"
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-prebuilt
+          path: |
+            ${{ steps.pkg.outputs.asset }}
+            ${{ steps.pkg.outputs.asset }}.sha256
+          if-no-files-found: error
+
+  build-android:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26d
+          add-to-path: true
+      - name: Install Rust targets and cargo-ndk
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+          cargo install cargo-ndk --locked
+      - name: Build jniLibs
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: ./tool/build_rust_android.sh
+      - name: Package jniLibs
+        id: pkg
+        run: |
+          version="${{ needs.meta.outputs.version }}"
+          asset="anim_svg_core-${version}-android.tar.gz"
+          tar -czf "${asset}" -C android/src/main/jniLibs .
+          sha256sum "${asset}" | awk '{print $1}' > "${asset}.sha256"
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-prebuilt
+          path: |
+            ${{ steps.pkg.outputs.asset }}
+            ${{ steps.pkg.outputs.asset }}.sha256
+          if-no-files-found: error
+
+  release:
+    needs: [meta, build-ios, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-prebuilt
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-prebuilt
+          path: dist
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/anim_svg_core-${{ needs.meta.outputs.version }}-ios.zip
+            dist/anim_svg_core-${{ needs.meta.outputs.version }}-ios.zip.sha256
+            dist/anim_svg_core-${{ needs.meta.outputs.version }}-android.tar.gz
+            dist/anim_svg_core-${{ needs.meta.outputs.version }}-android.tar.gz.sha256

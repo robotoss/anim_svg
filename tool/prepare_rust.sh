@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Called from ios/anim_svg.podspec `prepare_command` and android/build.gradle
-# `preBuild`. Builds the native artifacts if they're missing, skips if
-# they're present (respects a full clean to force rebuild).
+# `preBuild`. Ensures native artifacts are in place, in this order:
+#   1. If artifacts already present and FORCE_RUST_REBUILD != 1 — no-op.
+#   2. Try to download prebuilt artifacts from the GitHub Release for the
+#      current pubspec version.
+#   3. Fall back to a local Rust build (requires toolchain).
 #
 # Invocation:
 #   ./tool/prepare_rust.sh ios
 #   ./tool/prepare_rust.sh android
+#
+# Environment:
+#   FORCE_RUST_REBUILD=1      — ignore cached artifacts and re-run from scratch
+#   ANIM_SVG_SKIP_DOWNLOAD=1  — skip the GH Release fetch, go straight to build
 
 set -euo pipefail
 
@@ -25,6 +32,10 @@ case "$target" in
       echo "[prepare_rust] ios artifacts already present at $XCF (set FORCE_RUST_REBUILD=1 to rebuild)"
       exit 0
     fi
+    if [ "${FORCE_RUST_REBUILD:-0}" != "1" ] && "$SCRIPT_DIR/download_prebuilt.sh" ios; then
+      exit 0
+    fi
+    echo "[prepare_rust] building ios artifacts from source"
     "$SCRIPT_DIR/build_rust_ios.sh"
     ;;
   android)
@@ -33,6 +44,10 @@ case "$target" in
       echo "[prepare_rust] android artifacts already present (set FORCE_RUST_REBUILD=1 to rebuild)"
       exit 0
     fi
+    if [ "${FORCE_RUST_REBUILD:-0}" != "1" ] && "$SCRIPT_DIR/download_prebuilt.sh" android; then
+      exit 0
+    fi
+    echo "[prepare_rust] building android artifacts from source"
     "$SCRIPT_DIR/build_rust_android.sh"
     ;;
   *)

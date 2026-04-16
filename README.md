@@ -51,7 +51,24 @@ The Rust core streams every stage (parse → map → serialize) through a struct
 flutter pub add anim_svg
 ```
 
-Building the native core from source requires a working Rust toolchain ([rustup.rs](https://rustup.rs)).
+### Native binaries
+
+`anim_svg` ships a Rust core that targets iOS and Android. The published package does **not** embed prebuilt binaries (they'd blow past pub.dev's 100 MB limit). Instead:
+
+1. **Default path (zero setup).** On first `pod install` / Gradle build, the plugin's `prepare_command` downloads prebuilt artifacts for the current plugin version from [GitHub Releases](https://github.com/zoxo-outlook/anim_svg/releases) and verifies them via SHA256. No Rust toolchain required.
+2. **Fallback path (source build).** If the download fails (offline, corporate firewall, missing release asset) the plugin falls back to building from the Rust source that ships with the package. See the **Building from source** section below for toolchain requirements.
+
+Environment variables:
+
+| Variable | Effect |
+| --- | --- |
+| `ANIM_SVG_SKIP_DOWNLOAD=1` | Skip the remote fetch, go straight to local build. Useful behind corporate proxies. |
+| `FORCE_RUST_REBUILD=1` | Ignore any cached or downloaded artifacts and rebuild from source. |
+| `ANIM_SVG_RELEASE_BASE_URL` | Override the release host (for mirrors / self-hosting). |
+
+### Building from source
+
+Only needed if the download path is disabled or unreachable. Requires a working Rust toolchain ([rustup.rs](https://rustup.rs)).
 
 **Android:** install the NDK via Android Studio and make sure [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk) is on your `PATH` (`cargo install cargo-ndk`). Gradle invokes it automatically during build.
 
@@ -62,6 +79,8 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 ```
 
 CocoaPods runs the Rust build script during `pod install`.
+
+### Swift Package Manager (iOS, `AnimSvgView.network` only)
 
 `AnimSvgView.network` depends on `flutter_cache_manager`, whose transitive `path_provider_foundation` needs **Swift Package Manager** to link its ObjC runtime on iOS. Enable SPM once per machine; Flutter then integrates SPM into your Xcode project automatically alongside CocoaPods:
 
