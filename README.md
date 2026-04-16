@@ -55,7 +55,7 @@ flutter pub add anim_svg
 
 `anim_svg` ships a Rust core that targets iOS and Android. The published package does **not** embed prebuilt binaries (they'd blow past pub.dev's 100 MB limit). Instead:
 
-1. **Default path (zero setup).** On first `pod install` / Gradle build, the plugin's `prepare_command` downloads prebuilt artifacts for the current plugin version from [GitHub Releases](https://github.com/zoxo-outlook/anim_svg/releases) and verifies them via SHA256. No Rust toolchain required.
+1. **Default path (zero setup).** On first `pod install` / Gradle build, the plugin's `prepare_command` downloads prebuilt artifacts for the current plugin version from [GitHub Releases](https://github.com/robotoss/anim_svg/releases) and verifies them via SHA256. No Rust toolchain required.
 2. **Fallback path (source build).** If the download fails (offline, corporate firewall, missing release asset) the plugin falls back to building from the Rust source that ships with the package. See the **Building from source** section below for toolchain requirements.
 
 Environment variables:
@@ -278,7 +278,7 @@ flutter run
 
 **The single most useful thing you can do:** when an SVG breaks, open an issue and attach the file. Every accepted fixture becomes a permanent regression test and usually unlocks a small feature for every other user.
 
-- Bugs / unsupported features → [open an issue](https://github.com/zoxo-outlook/anim_svg/issues) with the SVG attached and a one-liner on expected behavior.
+- Bugs / unsupported features → [open an issue](https://github.com/robotoss/anim_svg/issues) with the SVG attached and a one-liner on expected behavior.
 - PRs adding element, SMIL, CSS, or filter mappings are welcome — update the matrix in this README in the same PR.
 - Dev setup: install Rust + `cargo-ndk`, then `tool/prepare_rust.sh ios|android` builds the native core. Architecture notes live in [`brain/adr.md`](brain/adr.md) (ADR-024 covers the Rust core).
 

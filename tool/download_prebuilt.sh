@@ -14,7 +14,7 @@
 # Environment:
 #   ANIM_SVG_SKIP_DOWNLOAD=1  — skip download and return non-zero immediately
 #   ANIM_SVG_RELEASE_BASE_URL — override for testing / mirrors
-#                              (default: https://github.com/zoxo-outlook/anim_svg/releases/download)
+#                              (default: https://github.com/robotoss/anim_svg/releases/download)
 
 set -euo pipefail
 
@@ -39,7 +39,7 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
-base_url="${ANIM_SVG_RELEASE_BASE_URL:-https://github.com/zoxo-outlook/anim_svg/releases/download}"
+base_url="${ANIM_SVG_RELEASE_BASE_URL:-https://github.com/robotoss/anim_svg/releases/download}"
 tag="v${version}"
 
 case "$target" in

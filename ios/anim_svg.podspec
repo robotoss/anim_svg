@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
 Flutter widget for animated SVG. Transpiles SMIL, CSS @keyframes, and Svgator
 animations to Lottie JSON, rendered by the native thorvg engine.
                        DESC
-  s.homepage         = 'https://github.com/zoxo-outlook/anim_svg'
+  s.homepage         = 'https://github.com/robotoss/anim_svg'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Yeftifeyev Konstantin' => 'zoxo@outlook.com' }
   s.source           = { :path => '.' }
