@@ -20,7 +20,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  plugin_platform_interface: ^2.0.2
   xml: ^6.5.0
   meta: ^1.12.0
   thorvg: ^1.0.0
