@@ -2,7 +2,7 @@ name: anim_svg
 description: >-
   Flutter widget for animated SVG. Transpiles SMIL, CSS @keyframes, and Svgator
   animations to Lottie JSON, rendered by the native thorvg engine.
-version: 0.0.2
+version: 0.0.3
 homepage: https://github.com/robotoss/anim_svg
 repository: https://github.com/robotoss/anim_svg
 issue_tracker: https://github.com/robotoss/anim_svg/issues

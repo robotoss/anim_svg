@@ -47,6 +47,7 @@ class AnimSvgView extends StatefulWidget {
     this.placeholderBuilder,
     this.logger,
     this.onLottieReady,
+    this.startDelay,
   }) : assert(svgLoader != null || lottieBytesLoader != null,
             'Exactly one of svgLoader or lottieBytesLoader must be provided');
 
@@ -65,6 +66,7 @@ class AnimSvgView extends StatefulWidget {
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
+    Duration? startDelay,
   }) {
     return AnimSvgView._(
       key: key,
@@ -82,6 +84,7 @@ class AnimSvgView extends StatefulWidget {
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
+      startDelay: startDelay,
     );
   }
 
@@ -100,6 +103,7 @@ class AnimSvgView extends StatefulWidget {
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
+    Duration? startDelay,
   }) {
     return AnimSvgView._(
       key: key,
@@ -117,6 +121,7 @@ class AnimSvgView extends StatefulWidget {
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
+      startDelay: startDelay,
     );
   }
 
@@ -143,6 +148,7 @@ class AnimSvgView extends StatefulWidget {
     void Function(Uint8List lottieBytes)? onLottieReady,
     BaseCacheManager? cacheManager,
     NetworkSvgLoader? loader,
+    Duration? startDelay,
   }) {
     final effectiveLoader = loader ??
         NetworkSvgLoader(
@@ -165,6 +171,7 @@ class AnimSvgView extends StatefulWidget {
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
+      startDelay: startDelay,
     );
   }
 
@@ -193,6 +200,12 @@ class AnimSvgView extends StatefulWidget {
   final AnimSvgLogger? logger;
   final void Function(Uint8List lottieBytes)? onLottieReady;
 
+  /// Delays mounting of the thorvg engine. Used to stagger initial
+  /// `tvg.load` calls across multiple animations in a list so that 8
+  /// synchronous `SwCanvas` setups don't collide in a single frame.
+  /// While the delay is pending the widget renders its loadingBuilder.
+  final Duration? startDelay;
+
   @override
   State<AnimSvgView> createState() => _AnimSvgViewState();
 }
@@ -209,6 +222,7 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
   // handle whose `.play()` we call reflectively.
   dynamic _engine;
   StackTrace? _lastStack;
+  bool _mountReady = true;
 
   AnimSvgLogger get _log => widget.logger ?? DeveloperLogger();
 
@@ -216,6 +230,14 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
   void initState() {
     super.initState();
     _lottieBytesFuture = _loadAndConvert();
+    final delay = widget.startDelay;
+    if (delay != null && delay > Duration.zero) {
+      _mountReady = false;
+      Future.delayed(delay, () {
+        if (!mounted) return;
+        setState(() => _mountReady = true);
+      });
+    }
     widget.controller?.attachInternal(this);
   }
 
@@ -349,7 +371,7 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
           if (eb != null) return eb(context, snap.error!, _lastStack);
           return _defaultError();
         }
-        if (!snap.hasData) {
+        if (!snap.hasData || !_mountReady) {
           final lb = widget.loadingBuilder;
           return lb != null ? lb(context) : _defaultLoading();
         }
@@ -358,23 +380,25 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
           final pb = widget.placeholderBuilder;
           return pb != null ? pb(context) : _defaultPlaceholder();
         }
-        return SizedBox(
-          width: widget.width,
-          height: widget.height,
-          child: FittedBox(
-            fit: widget.fit,
-            alignment: widget.alignment,
-            child: tvg.Lottie.memory(
-              out.bytes,
-              width: widget.width,
-              height: widget.height,
-              animate: widget.animate,
-              repeat: widget.repeat,
-              reverse: false,
-              onLoaded: (engine) {
-                _engine = engine;
-                _log.info('widget.engine', 'thorvg loaded');
-              },
+        return RepaintBoundary(
+          child: SizedBox(
+            width: widget.width,
+            height: widget.height,
+            child: FittedBox(
+              fit: widget.fit,
+              alignment: widget.alignment,
+              child: tvg.Lottie.memory(
+                out.bytes,
+                width: widget.width,
+                height: widget.height,
+                animate: widget.animate,
+                repeat: widget.repeat,
+                reverse: false,
+                onLoaded: (engine) {
+                  _engine = engine;
+                  _log.info('widget.engine', 'thorvg loaded');
+                },
+              ),
             ),
           ),
         );
