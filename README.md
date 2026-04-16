@@ -2,7 +2,7 @@
 
 **Animated SVG for Flutter, rendered by [thorvg](https://pub.dev/packages/thorvg).**
 
-> ⚠️ **Experimental (0.0.1).** An attempt to bring animated SVG to Flutter by transpiling to Lottie JSON in pure Dart and delegating rasterisation to the native C++ **thorvg** renderer. No custom SVG runtime.
+> ⚠️ **Experimental (0.0.1).** An attempt to bring animated SVG to Flutter by transpiling to Lottie JSON via a native Rust core and delegating rasterisation to the native C++ **thorvg** renderer. No custom SVG runtime.
 
 ---
 
@@ -11,18 +11,15 @@
 ```text
 ┌──────────────────────────────────────────┐   ┌────────────────────┐   ┌─────────────────────┐
 │  SVG                                     │   │  Transpiler        │   │  thorvg             │
-│   • SMIL (<animate>, <animateTransform>) │──▶│  Dart (current)    │──▶│  (native C++        │
-│   • CSS @keyframes                       │   │  Rust (opt-in,     │   │   Lottie renderer)  │
-│   • Svgator <script> payload             │   │  parity rollout)   │   │                     │
+│   • SMIL (<animate>, <animateTransform>) │──▶│  native Rust core  │──▶│  (native C++        │
+│   • CSS @keyframes                       │   │  (anim_svg_core,   │   │   Lottie renderer)  │
+│   • Svgator <script> payload             │   │   via raw dart:ffi)│   │                     │
 └──────────────────────────────────────────┘   │  → Lottie JSON     │   └─────────────────────┘
                                                └────────────────────┘
 ```
 
-A native Rust implementation (`native/anim_svg_core`) is being ported in
-parallel with the Dart converter. During rollout both paths coexist
-behind a feature flag (`ConvertSvgToLottie(useRustBackend: true)`); the
-Dart path stays as a reference oracle until parity tests pass on every
-fixture. See [ADR-024](brain/adr.md#adr-024-native-rust-core-via-raw-dart-ffi-anim_svg_core)
+Conversion runs entirely inside `native/anim_svg_core` (Rust) and is
+invoked through `dart:ffi`. See [ADR-024](brain/adr.md#adr-024-native-rust-core-via-raw-dart-ffi-anim_svg_core)
 for the rationale.
 
 ## Why
@@ -52,7 +49,7 @@ AnimSvgView.asset(
 
 Also available: `AnimSvgView.string(svgXml, ...)` for in-memory SVG.
 
-### Pure-Dart conversion (no Flutter)
+### Direct conversion
 
 ```dart
 import 'package:anim_svg/anim_svg.dart';
@@ -88,7 +85,7 @@ final lottieJson = ConvertSvgToLottie().convertToJson(svgXmlString);
 
 ### WebP → PNG transcode
 
-thorvg 1.0's Flutter build ships loaders for Lottie, PNG, and JPEG — **not WebP**. When the SVG contains `data:image/webp;base64,...`, `anim_svg` decodes it via `package:image` and re-encodes as PNG before embedding it in the Lottie asset. PNG and JPEG pass through untouched.
+thorvg 1.0's Flutter build ships loaders for Lottie, PNG, and JPEG — **not WebP**. When the SVG contains `data:image/webp;base64,...`, `anim_svg` decodes and re-encodes as PNG before embedding it in the Lottie asset. PNG and JPEG pass through untouched.
 
 ## Limitations
 
