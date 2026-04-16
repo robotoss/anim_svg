@@ -13,7 +13,7 @@ class LottieCacheManager extends CacheManager {
           fileService: HttpFileService(),
         ));
 
-  static const _storeKey = 'anim_svg_lottie_v1';
+  static const _storeKey = 'anim_svg_lottie_v2';
 
   static final LottieCacheManager instance = LottieCacheManager._();
 }

@@ -127,7 +127,7 @@ What the cache stores and where:
 | TTL | **7 days** (`Config.stalePeriod`) |
 | Capacity | 200 entries, LRU eviction |
 | Location | platform `getTemporaryDirectory()` — managed by `flutter_cache_manager` |
-| Store key | `anim_svg_lottie_v1` — bumped if the converter output format changes |
+| Store key | `anim_svg_lottie_v2` — bumped if the converter output format changes |
 
 Hooks for advanced cases:
 
