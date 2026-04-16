@@ -1,8 +1,7 @@
 name: anim_svg
 description: >-
-  Render animated SVG (SMIL, CSS @keyframes, Svgator) in Flutter by transpiling
-  to Lottie JSON and delegating rasterisation to the native C++ thorvg
-  renderer. Experimental. Pure-Dart converter, no custom SVG runtime.
+  Flutter widget for animated SVG. Transpiles SMIL, CSS @keyframes, and Svgator
+  animations to Lottie JSON, rendered by the native thorvg engine.
 version: 0.0.1
 homepage: https://github.com/zoxo-outlook/anim_svg
 repository: https://github.com/zoxo-outlook/anim_svg
