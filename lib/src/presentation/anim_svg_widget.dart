@@ -163,13 +163,17 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
       });
 
       final converter = ConvertSvgToLottie(logger: log);
-      final lottie = converter.convert(svg);
-      if (lottie.layers.isEmpty) {
+      final envelope = converter.convertToEnvelope(svg);
+      final lottieMap = envelope.lottie;
+      final layers =
+          lottieMap is Map<String, Object?> ? lottieMap['layers'] : null;
+      final layerCount = layers is List ? layers.length : 0;
+      if (layerCount == 0) {
         log.warn('widget', 'conversion produced zero layers → placeholder',
             fields: {'source': widget.sourceLabel});
         return _PipelineOutput(Uint8List(0), 0);
       }
-      final jsonStr = converter.convertToJson(svg);
+      final jsonStr = envelope.lottieJson;
       // package:thorvg 1.0 decodes the buffer twice: `String.fromCharCodes`
       // to feed `jsonDecode` (for layer size) and then again for native
       // FFI. Any trailing byte past the closing `}` — e.g. a NUL padding —
@@ -179,10 +183,10 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
       // SvgToLottieMapper is sufficient on its own.
       final bytes = Uint8List.fromList(utf8.encode(jsonStr));
       log.info('widget', 'lottie ready',
-          fields: {'json_bytes': bytes.length, 'layers': lottie.layers.length});
+          fields: {'json_bytes': bytes.length, 'layers': layerCount});
 
       widget.onLottieReady?.call(bytes);
-      return _PipelineOutput(bytes, lottie.layers.length);
+      return _PipelineOutput(bytes, layerCount);
     } catch (e, s) {
       _lastStack = s;
       log.error('widget', 'pipeline failed',

@@ -695,3 +695,44 @@ SVG saturate and AE Master Saturation are not an exact mathematical
 match; at extreme values (s > 3) the visual difference is noticeable.
 − `feColorMatrix type="matrix"` with an arbitrary 4×5 matrix is
 still not supported.
+
+## ADR-024. Native Rust core via raw Dart FFI (anim_svg_core)
+
+**Context.** The pure-Dart converter (`lib/src/`) transpiles SVG → Lottie on
+every render. Path normalization, transform math, and CSS/SMIL parsing
+burn measurable CPU on the UI isolate. Options: (a) keep pure Dart and
+add caching (ADR-002 already planned this); (b) port hot paths to Rust;
+(c) port the full pipeline to Rust. Bridge options: `flutter_rust_bridge`
+or raw Dart FFI with `cbindgen`.
+
+**Decision.** Option (c) — port the full pipeline to Rust — with raw Dart
+FFI, mirroring the existing `thorvg.flutter` FFI pattern. The native crate
+lives at `native/anim_svg_core/`. FFI surface is intentionally tiny:
+`anim_svg_convert(svg, opts)` returns a single malloc'd JSON envelope
+`{lottie, svg_raw, logs, error}`; `anim_svg_free_string(ptr)` releases it;
+`anim_svg_core_version()` reports the native semver.
+
+Rollout is **parallel with a feature flag** (`ConvertSvgToLottie(useRustBackend:
+bool)`, default `false` during port, flipped to `true` once parity tests
+pass on every fixture). The Dart converter stays as a reference oracle
+for at least one release after the flip.
+
+**Criterion.** Parity test (`test/parity/rust_parity_test.dart`) runs every
+fixture through both pipelines and diffs the Lottie JSON structurally
+(sorted keys, floats rounded to 6 decimals). Byte-exact is not required —
+cubic-Bézier math and float serialization differ naturally between
+engines — but visually identical rendering is.
+
+**Consequences.** + Conversion latency drops (native parse, compiled
+math, zero-copy strings across the roxmltree walk). + The envelope
+preserves **everything** the Dart side used to compute, plus what it used
+to drop: raw SVG tree, structured log entries, structured error. Nothing
+lost in the process. + Platform artifacts are prebuilt by `tool/build_rust.sh`
+(iOS xcframework, Android jniLibs `.so`s) and re-run automatically by the
+podspec `prepare_command` and Gradle `buildRustCore` task when missing.
+− A second toolchain (Rust + cargo-ndk + Xcode CLI) is now required for
+plugin development. − Debugging is harder: stack traces don't cross the
+FFI boundary. The envelope's `logs[]` and per-stage timings partly
+compensate. − The iOS keep-alive shim (`ios/Classes/AnimSvgKeepAlive.c`)
+must reference a Rust symbol so the linker doesn't dead-strip the static
+lib — brittle if someone edits it without understanding the rationale.
