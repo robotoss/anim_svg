@@ -27,6 +27,8 @@ dependencies:
   thorvg: ^1.0.0
   image: ^4.2.0
   ffi: ^2.1.0
+  flutter_cache_manager: ^3.4.1
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:
