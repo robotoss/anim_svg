@@ -27,8 +27,8 @@ import 'dart:io' as io;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:thorvg/src/thorvg.dart' as module;
-import 'package:thorvg/src/utils.dart';
+import 'package:thorvg_plus/src/thorvg.dart' as module;
+import 'package:thorvg_plus/src/utils.dart';
 
 class Lottie extends StatefulWidget {
   final Future<String> data;

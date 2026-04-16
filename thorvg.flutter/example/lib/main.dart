@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:thorvg/thorvg.dart';
+import 'package:thorvg_plus/thorvg.dart';
 
 void main() {
   runApp(const MyApp());

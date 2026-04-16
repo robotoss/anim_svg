@@ -20,4 +20,4 @@
  * SOFTWARE.
  */
 
-export 'src/lottie.dart' show Lottie, RenderConfig;
+export 'src/lottie.dart' show Lottie;

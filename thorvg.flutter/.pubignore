@@ -1,11 +1,39 @@
+# .pubignore for thorvg_plus (source-built fork of thorvg for Flutter).
+# Unlike upstream thorvg 1.0.0, this package does NOT ship a prebuilt dylib —
+# the CocoaPods podspec compiles ThorVG from source on every pod install,
+# so the `thorvg/` engine subtree and the `src/` wrapper MUST be published.
+
+# Tool / editor output.
 .dart_tool/
-thorvg/
+build/
+pubspec.lock
+.fvm/
+.fvmrc
+*.iml
+.idea/
+.vscode/
+
+# Ephemeral caches and underscore-prefixed private files.
+_*
+
+# Internal tooling not needed by consumers.
 .gitmodules
 ffigen.yaml
-example/assets
-example/android
-example/ios
+
+# Example app: keep only Dart source + pubspec so pub.dev can render the
+# Example tab. Drop platform wrappers and bundled animation assets.
+example/android/
+example/ios/
+example/assets/
+example/.dart_tool/
+example/build/
+example/pubspec.lock
+
+# Generated binaries (pod/Gradle rebuild at consumer-install time).
+android/src/main/jniLibs/
+ios/Frameworks/
+ios/plugin_src/
+ios/thorvg_ext/
+
+# Doc images are reference-only; not needed by the runtime package.
 doc/*.png
-*.iml
-_*
-.*

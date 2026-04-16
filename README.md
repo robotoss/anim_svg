@@ -13,9 +13,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
-`anim_svg` turns an animated SVG — SMIL, CSS `@keyframes`, motion paths — into a Lottie 5.7 document at runtime and hands the result to [**thorvg**](https://www.thorvg.org/), a fast C++ vector + Lottie renderer shipped to Flutter via [`package:thorvg`](https://pub.dev/packages/thorvg). Conversion runs entirely inside a native Rust core (`anim_svg_core`) invoked through `dart:ffi`.
+`anim_svg` turns an animated SVG — SMIL, CSS `@keyframes`, motion paths — into a Lottie 5.7 document at runtime and hands the result to [**thorvg**](https://www.thorvg.org/), a fast C++ vector + Lottie renderer. It's shipped to Flutter via [`package:thorvg_plus`](https://pub.dev/packages/thorvg_plus) — a source-built fork of `package:thorvg` that restores iOS simulator support (see *[Why `thorvg_plus`](#why-we-depend-on-thorvg_plus-instead-of-thorvg)* below). Conversion runs entirely inside a native Rust core (`anim_svg_core`) invoked through `dart:ffi`.
 
-> **Experimental (v0.0.1).** Public API may change between patch releases. Coverage grows with real-world input — if an SVG renders wrong, **open an issue with the file attached** and we'll add it to the fixture suite.
+> **Experimental (v0.0.2).** Public API may change between patch releases. Coverage grows with real-world input — if an SVG renders wrong, **open an issue with the file attached** and we'll add it to the fixture suite.
 
 ---
 
@@ -50,6 +50,14 @@ The Rust core streams every stage (parse → map → serialize) through a struct
 ```bash
 flutter pub add anim_svg
 ```
+
+### Why we depend on `thorvg_plus` instead of `thorvg`
+
+Upstream [`thorvg: ^1.0.0`](https://pub.dev/packages/thorvg) on pub.dev ships a device-only `libthorvg.dylib` for iOS, so any consumer building for the iOS simulator hits a linker error (tracked at [thorvg.flutter#22](https://github.com/thorvg/thorvg.flutter/issues/22)). `dependency_overrides` work only in the root app, **not transitively from a plugin** — so `anim_svg` can't fix this for its consumers by overriding upstream `thorvg` internally.
+
+Instead we depend on [`thorvg_plus`](https://pub.dev/packages/thorvg_plus), a source-built fork published from this same repository. `thorvg_plus` compiles ThorVG per-platform (no prebuilt dylib at all), so the right architecture slice is always produced. The Dart API matches upstream byte-for-byte — only the native build pipeline differs.
+
+We will migrate back to upstream `thorvg` as soon as #22 is resolved and a fixed version reaches pub.dev.
 
 ### Native binaries
 
@@ -261,9 +269,11 @@ Svgator-exported SVGs embed a `<script>` tag containing a JavaScript runtime. **
 
 If you need to render Svgator output, use [Svgator's own Flutter-compatible Dart package](https://www.svgator.com/help/articles/can-i-use-svgator-with-flutter) — per their docs it ships native Dart support. Happy path: animate everything else with `anim_svg`, drop Svgator-exported assets through their SDK.
 
-## Why is `thorvg.flutter/` vendored?
+## The `thorvg.flutter/` directory
 
-This repo currently vendors a fork of [`thorvg.flutter`](https://github.com/thorvg/thorvg.flutter) under `thorvg.flutter/`. It carries a small C++ tweak needed for clean iOS builds, tracked upstream at **[thorvg/thorvg.flutter#22](https://github.com/thorvg/thorvg.flutter/issues/22)**. Once that issue lands upstream this package will depend on `thorvg` from pub.dev directly and the `thorvg.flutter/` directory will go away. Huge thanks to the thorvg team — the bug is narrow, the renderer itself is excellent.
+This repo hosts the source of our [`thorvg_plus`](https://pub.dev/packages/thorvg_plus) fork under `thorvg.flutter/`. It's published to pub.dev as a separate package (`cd thorvg.flutter && dart pub publish`) and consumed by `anim_svg` like any other hosted dependency. See the fork's own [README](thorvg.flutter/README.md) for what was changed and why.
+
+Once upstream [thorvg/thorvg.flutter#22](https://github.com/thorvg/thorvg.flutter/issues/22) ships a fix, `anim_svg` will depend on upstream `thorvg` directly, `thorvg_plus` will be deprecated, and the `thorvg.flutter/` directory will be removed. Huge thanks to the thorvg team — the bug is narrow, the renderer itself is excellent.
 
 ## Example
 
@@ -284,7 +294,7 @@ flutter run
 
 ## Acknowledgements
 
-- **[thorvg](https://www.thorvg.org/)** ([GitHub](https://github.com/thorvg/thorvg) · [pub.dev](https://pub.dev/packages/thorvg)) — fast, actively maintained C++ vector + Lottie renderer. None of this exists without it.
+- **[thorvg](https://www.thorvg.org/)** ([GitHub](https://github.com/thorvg/thorvg) · upstream [pub.dev](https://pub.dev/packages/thorvg)) — fast, actively maintained C++ vector + Lottie renderer. None of this exists without it. `anim_svg` currently links against our [`thorvg_plus`](https://pub.dev/packages/thorvg_plus) fork (see above).
 - **Lottie** / [bodymovin](https://github.com/airbnb/lottie-web) — the format that makes animated vector portable.
 - [`package:xml`](https://pub.dev/packages/xml), [`package:image`](https://pub.dev/packages/image), [`package:ffi`](https://pub.dev/packages/ffi) — the Dart side's load-bearing libraries.
 - [`flutter_cache_manager`](https://pub.dev/packages/flutter_cache_manager) and [`http`](https://pub.dev/packages/http) — power the disk cache and network loader behind `AnimSvgView.network`.

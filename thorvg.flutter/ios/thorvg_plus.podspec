@@ -1,14 +1,16 @@
 Pod::Spec.new do |s|
-  s.name             = 'thorvg'
-  s.version          = '1.0.0-src'
-  s.summary          = 'ThorVG for Flutter (direct source build)'
+  s.name             = 'thorvg_plus'
+  s.version          = '1.0.0'
+  s.summary          = 'Source-built fork of thorvg for Flutter with full iOS simulator support.'
   s.description      = <<-DESC
-    ThorVG Flutter Runtime compiled from source via CocoaPods.
-    Includes sw engine and lottie/png/jpg/raw loaders.
+    thorvg_plus is a source-built fork of the ThorVG Flutter runtime,
+    published to work around upstream thorvg.flutter#22 (iOS simulator
+    linker failure). Compiled from source via CocoaPods; includes the
+    sw engine and the lottie/png/jpg/raw loaders.
   DESC
-  s.homepage         = 'https://github.com/thorvg/thorvg.flutter'
+  s.homepage         = 'https://github.com/robotoss/anim_svg/tree/master/thorvg.flutter'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Jinny You' => 'jinny@lottiefiles.com' }
+  s.author           = { 'Yeftifeyev Konstantin' => 'zoxo@outlook.com' }
   s.source           = { :path => '.' }
   s.dependency 'Flutter'
   s.platform         = :ios, '11.0'

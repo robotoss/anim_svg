@@ -22,9 +22,11 @@ example/build/
 example/pubspec.lock
 example/integration_test/
 
-# Vendored thorvg.flutter fork is only used by the example app via
-# dependency_overrides. Published consumers get thorvg from pub.dev directly.
-thorvg.flutter/
+# Vendored thorvg.flutter fork — published separately to pub.dev as
+# `thorvg_plus` (consumers get it from pub.dev). Anchor the pattern so it
+# applies only to the anim_svg root package. An unanchored `thorvg.flutter/`
+# would propagate into the child package publish and hide everything there.
+/thorvg.flutter/
 
 # Tests and fixtures — dev-only.
 test/

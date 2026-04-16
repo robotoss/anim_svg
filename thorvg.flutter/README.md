@@ -1,34 +1,50 @@
-[![CodeFactor](https://www.codefactor.io/repository/github/thorvg/thorvg.flutter/badge)](https://www.codefactor.io/repository/github/thorvg/thorvg.flutter)
-[![Discord](https://img.shields.io/badge/Community-5865f2?style=flat&logo=discord&logoColor=white)](https://discord.gg/n25xj6J6HM)
-[![OpenCollective](https://img.shields.io/badge/OpenCollective-84B5FC?style=flat&logo=opencollective&logoColor=white)](https://opencollective.com/thorvg)
-[![License](https://img.shields.io/badge/licence-MIT-green.svg?style=flat)](LICENSE)
-[![pub package](https://img.shields.io/pub/v/thorvg.svg)](https://pub.dev/packages/thorvg)
+# thorvg_plus — source-built thorvg for Flutter
 
-# ThorVG for Flutter
+`thorvg_plus` is a source-built fork of the [ThorVG Flutter runtime](https://github.com/thorvg/thorvg.flutter), published on pub.dev as a temporary workaround for [thorvg/thorvg.flutter#22](https://github.com/thorvg/thorvg.flutter/issues/22). Use it when you need thorvg to link on the iOS Simulator.
 
-<p align="center">
-  <img width="800" height="auto" src="https://github.com/thorvg/thorvg.site/blob/main/readme/logo/512/thorvg-banner.png">
-</p>
+The public Dart API matches upstream `thorvg 1.0.0` byte-for-byte — `Lottie.asset`, `Lottie.network`, and everything else work the same way. Only the native build pipeline differs.
 
-This project provides the [ThorVG](https://github.com/thorvg/thorvg) runtime for Flutter, including efficient Lottie animation support via a native API.
+## Why this fork exists
 
-> Currently, we only support Lottie Animation feature in this package.
+Upstream [`thorvg: ^1.0.0`](https://pub.dev/packages/thorvg) on pub.dev ships a **device-only** `libthorvg.dylib`. Any consumer running `flutter run -d <iOS simulator>` hits a linker error:
 
-## Supported Platforms
+```
+Building for 'iOS-simulator', but linking in dylib
+  (…/pub.dev/thorvg-1.0.0/ios/Frameworks/libthorvg.dylib) built for 'iOS'
+```
 
-| Platform | Architecture |
-| ------------- | ------------- |
-| Android | arm64-v8a, armeabi-v7a, x86_64 |
-| iOS | arm64, x86_64, x86_64(simulator) |
+A local app can work around this with `dependency_overrides: thorvg: path: …`, but **overrides are not transitive through pub.dev** — a plugin that depends on `thorvg` cannot fix the problem for its own consumers.
+
+`thorvg_plus` removes the prebuilt dylib entirely and builds ThorVG from source on every install, so the compiler produces the right slice for whatever the consumer is targeting.
+
+## Scope
+
+The pruned ThorVG tree shipped in this package keeps only what `Lottie.*` needs at runtime:
+
+- **Loaders:** `lottie`, `png`, `jpg`, `raw`.
+- **Renderer:** software engine only.
+
+Removed (via [`tool/prune_thorvg.sh`](tool/prune_thorvg.sh)): SVG / TTF / WebP loaders, GL / WebGPU renderers, savers, tests.
+
+## Relation to upstream
+
+- Source: [thorvg/thorvg.flutter](https://github.com/thorvg/thorvg.flutter), tagged at `1.0.0`.
+- Tracking bug: [thorvg.flutter#22 — iOS simulator linker failure](https://github.com/thorvg/thorvg.flutter/issues/22).
+- Licence: MIT, unchanged — all copyright notices are preserved verbatim.
+
+When upstream lands a fix and releases a patched `thorvg`, this package will be deprecated in favour of the official one. Switch back as soon as you can — the upstream is the actively maintained renderer.
+
+## Install
+
+```bash
+flutter pub add thorvg_plus
+```
 
 ## Usage
 
-### Lottie
-The Lottie implementation aims to maintain the same interface as `lottie-flutter`. If you are currently using it, you can simply replace the import statement with `import 'package:thorvg/thorvg.dart'` to utilize the code.
-
 ```dart
-import 'package:thorvg/thorvg.dart';
-// ...
+import 'package:thorvg_plus/thorvg.dart';
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -38,12 +54,9 @@ class MyApp extends StatelessWidget {
       home: Scaffold(
         body: Column(
           children: [
-            // Load a Lottie animation from the assets
             Lottie.asset('assets/lottie/dancing_star.json'),
-
-            // Load a Lottie animation from a url
             Lottie.network(
-              'https://lottie.host/6d7dd6e2-ab92-4e98-826a-2f8430768886/NGnHQ6brWA.json'
+              'https://lottie.host/6d7dd6e2-ab92-4e98-826a-2f8430768886/NGnHQ6brWA.json',
             ),
           ],
         ),
@@ -53,63 +66,22 @@ class MyApp extends StatelessWidget {
 }
 ```
 
-## Generate Flutter binding
+## Platforms
 
-If you change the binding interface in these files
-- `tvgFlutterLottieAnimation.h`
-- `tvgFlutterLottieAnimation.cpp`
+| Platform | Architectures |
+| --- | --- |
+| Android | `arm64-v8a`, `armeabi-v7a`, `x86_64` |
+| iOS     | `arm64` (device + simulator), `x86_64` (simulator) |
 
-You must always run the following script:
+## Regenerate Flutter bindings
+
+Only needed if you modify `tvgFlutterLottieAnimation.{h,cpp}`:
 
 ```sh
-# Run for the first time
 flutter pub get
-# Generate bindings with ffigen
 flutter pub run ffigen --config ffigen.yaml
 ```
 
-You will get `./lib/src/thorvg_bindings_generated.dart`.
+## License
 
-
-## Build
-
-Specify the ThorVG version in the `.gitmodules` file.
-
-```sh
-[submodule "thorvg"]
-  path = thorvg
-  url = git@github.com:thorvg/thorvg.git
-  branch = v0.14.x # Change to version you want
-```
-
-Then you can run the following commands to align with that version before building.
-
-```sh
-git submodule init
-git submodule update --remote
-```
-
-### Android
-
-Android build requires NDK([LTS](https://developer.android.com/ndk/downloads#lts-downloads)), please specify following build [systems info](https://developer.android.com/ndk/guides/other_build_systems?_gl=1*19sk6gt*_up*MQ..*_ga*MTYxMjIxMTcwMi4xNzE0MTE5NTk1*_ga_6HH9YJMN9M*MTcxNDExOTU5NS4xLjAuMTcxNDExOTU5NS4wLjAuMA..#overview).
-
-```sh
-# Build for Animation(Lottie)
-cd lottie
-sh flutter_build.android.sh $NDK $HOST_TAG $API
-```
-
-Check whether these files are generated:
-- `android/src/main/arm64-v8a/libthorvg.so`
-- `android/src/main/armeabi-v7a/libthorvg.so`
-- `android/src/main/x86_64/libthorvg.so`
-
-### iOS
-```sh
-# Build for Animation(Lottie)
-cd lottie
-sh flutter_build.ios.sh
-```
-
-Check whether this file is generated:
-- `ios/Frameworks/libthorvg.dylib`
+MIT — see [LICENSE](LICENSE). © ThorVG Project.

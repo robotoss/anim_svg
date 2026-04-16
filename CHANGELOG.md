@@ -1,3 +1,7 @@
+## 0.0.2
+
+* Switch runtime renderer from `thorvg: ^1.0.0` to our own source-built fork [`thorvg_plus: ^1.0.0`](https://pub.dev/packages/thorvg_plus). Fixes the iOS simulator linker error hit by pub.dev consumers (upstream [thorvg.flutter#22](https://github.com/thorvg/thorvg.flutter/issues/22)). No API changes to `AnimSvgView` / `AnimSvgController`.
+
 ## 0.0.1
 
 * Initial experimental release.

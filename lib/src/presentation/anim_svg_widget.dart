@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:thorvg/thorvg.dart' as tvg;
+import 'package:thorvg_plus/thorvg.dart' as tvg;
 
 import '../core/logger.dart';
 import '../data/network/network_svg_loader.dart';

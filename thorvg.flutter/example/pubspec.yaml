@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  thorvg:
+  thorvg_plus:
     path: ../
 
 dev_dependencies:

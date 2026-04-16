@@ -31,7 +31,7 @@ dependencies:
   path_provider: ^2.1.0
 
 dependency_overrides:
-  thorvg:
+  thorvg_plus:
     path: ../thorvg.flutter
 
 dev_dependencies:
