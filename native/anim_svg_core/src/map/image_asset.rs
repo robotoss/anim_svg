@@ -73,15 +73,28 @@ mod tests {
     }
 
     #[test]
-    fn webp_passes_through_and_logs_warning() {
+    fn webp_garbage_falls_back_to_input_with_warning() {
         let mut logs = mk_logs();
         let img = mk_image("data:image/webp;base64,UklGRh4AAABXRUJQ", 8.0, 8.0);
         let out = build(&img, "asset_webp", &mut logs).unwrap();
-        // Stub: transcoder returns the input unchanged, so the raw URI is preserved.
+        // Garbage WebP bytes: the transcoder fails and falls back to the input
+        // unchanged so the document still serializes (the asset will render blank).
         assert_eq!(out.data_uri, "data:image/webp;base64,UklGRh4AAABXRUJQ");
         let entries = logs.into_entries();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].stage, "map.raster");
+        assert!(entries[0].message.contains("transcode failed"));
+    }
+
+    #[test]
+    fn webp_is_transcoded_to_png() {
+        // Minimal valid 1x1 WebP — same fixture as the raster_transcoder tests.
+        const WEBP_B64: &str =
+            "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA";
+        let mut logs = LogCollector::new(LogLevel::Debug);
+        let img = mk_image(&format!("data:image/webp;base64,{}", WEBP_B64), 1.0, 1.0);
+        let out = build(&img, "asset_webp", &mut logs).unwrap();
+        assert!(out.data_uri.starts_with("data:image/png;base64,"));
     }
 
     #[test]

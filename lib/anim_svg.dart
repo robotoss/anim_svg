@@ -12,5 +12,8 @@ export 'src/domain/usecases/convert_svg_to_lottie.dart';
 export 'src/data/ffi/rust_convert_envelope.dart';
 export 'src/data/ffi/rust_converter.dart';
 
+export 'src/data/cache/lottie_cache_manager.dart';
+export 'src/data/network/network_svg_loader.dart';
+
 export 'src/presentation/anim_svg_widget.dart';
 export 'src/presentation/anim_svg_controller.dart';

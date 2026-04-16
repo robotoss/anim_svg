@@ -27,3 +27,19 @@ class ConversionException implements Exception {
   @override
   String toString() => 'ConversionException: $message';
 }
+
+class NetworkSvgException implements Exception {
+  NetworkSvgException(this.url, {this.statusCode, this.reason});
+
+  final String url;
+  final int? statusCode;
+  final String? reason;
+
+  @override
+  String toString() {
+    final parts = <String>['NetworkSvgException: $url'];
+    if (statusCode != null) parts.add('status=$statusCode');
+    if (reason != null) parts.add(reason!);
+    return parts.join(' — ');
+  }
+}

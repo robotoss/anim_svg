@@ -3,33 +3,67 @@
 //! Transcodes raster data URIs into formats thorvg can decode.
 //!
 //! thorvg 1.0's Flutter build ships with loaders `lottie, png, jpg` only —
-//! WebP data URIs render as empty pixels. The Dart side decodes WebP bytes
-//! and re-encodes them as PNG via `package:image`.
+//! WebP data URIs render as empty pixels. We decode the WebP bytes with
+//! `image-webp` (pure-rust) and re-encode as PNG before handing the asset
+//! to the Lottie serializer.
 //!
-//! **Native stub**: the real WebP → PNG transcode is NOT implemented here
-//! because the Rust `image` crate (with WebP + PNG encoders enabled) is
-//! heavy enough to bloat the shared library by several MiB. This stub
-//! returns the input unchanged and logs a warning so the Dart layer can
-//! decide whether to transcode on its side or let the asset render blank.
-//! A follow-up PR can wire in a real transcoder.
-//!
-//! PNG/JPEG URIs pass through untouched (same as Dart).
+//! PNG/JPEG URIs pass through untouched — no decode/encode cost.
+
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use image::{codecs::png::PngEncoder, ImageEncoder, ImageReader};
+use std::io::Cursor;
 
 use crate::log::LogCollector;
 use crate::parse::data_uri::DataUri;
 
-/// Mirrors `RasterTranscoder.transcodeIfNeeded`. In the native stub the
-/// result is always `Ok(input)`; a warning is emitted when the input is a
-/// WebP URI so the caller knows transcoding was skipped.
+/// Mirrors `RasterTranscoder.transcodeIfNeeded`. WebP is decoded and
+/// re-encoded as PNG; on failure the input is returned unchanged with a
+/// warning so the rest of the pipeline still produces a Lottie document.
 pub fn transcode_if_needed(uri: DataUri, logs: &mut LogCollector) -> DataUri {
-    if uri.mime == "image/webp" {
-        logs.warn(
-            "map.raster",
-            "webp-transcode not yet implemented in native core",
-            &[("mime", uri.mime.clone().into())],
-        );
+    if uri.mime != "image/webp" {
+        return uri;
     }
-    uri
+    match webp_to_png(&uri) {
+        Ok(transcoded) => {
+            logs.debug(
+                "map.raster",
+                "webp→png transcoded",
+                &[
+                    ("src_bytes", uri.base64.len().into()),
+                    ("dst_bytes", transcoded.base64.len().into()),
+                ],
+            );
+            transcoded
+        }
+        Err(reason) => {
+            logs.warn(
+                "map.raster",
+                "webp transcode failed; passing through (will render blank)",
+                &[("reason", reason.into())],
+            );
+            uri
+        }
+    }
+}
+
+fn webp_to_png(uri: &DataUri) -> Result<DataUri, String> {
+    let bytes = uri.decode().map_err(|e| e.message)?;
+    let img = ImageReader::with_format(Cursor::new(&bytes), image::ImageFormat::WebP)
+        .decode()
+        .map_err(|e| format!("webp decode: {}", e))?;
+    let rgba = img.into_rgba8();
+    let (w, h) = rgba.dimensions();
+    let mut out = Vec::with_capacity(bytes.len());
+    PngEncoder::new(&mut out)
+        .write_image(rgba.as_raw(), w, h, image::ExtendedColorType::Rgba8)
+        .map_err(|e| format!("png encode: {}", e))?;
+    let b64 = STANDARD.encode(&out);
+    let raw = format!("data:image/png;base64,{}", b64);
+    Ok(DataUri {
+        mime: "image/png".to_string(),
+        base64: b64,
+        raw,
+    })
 }
 
 #[cfg(test)]
@@ -38,7 +72,7 @@ mod tests {
     use crate::log::LogLevel;
 
     fn mk_logs() -> LogCollector {
-        LogCollector::new(LogLevel::Warn)
+        LogCollector::new(LogLevel::Debug)
     }
 
     fn mk_uri(mime: &str, b64: &str) -> DataUri {
@@ -70,16 +104,33 @@ mod tests {
     }
 
     #[test]
-    fn webp_returns_input_unchanged_and_logs_warning() {
+    fn webp_is_decoded_and_re_encoded_as_png() {
+        // Minimal valid WebP (1x1 pixel) generated via `cwebp` for a
+        // hot-pink dot — base64 below is small enough to keep inline.
+        const WEBP_B64: &str =
+            "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA";
         let mut logs = mk_logs();
-        let uri = mk_uri("image/webp", "UklGRh4AAABXRUJQ");
+        let uri = mk_uri("image/webp", WEBP_B64);
+        let out = transcode_if_needed(uri, &mut logs);
+        assert_eq!(out.mime, "image/png");
+        assert!(out.base64.starts_with("iVBORw0KGgo"),
+            "expected PNG header in transcoded base64, got {}", &out.base64[..16.min(out.base64.len())]);
+        assert!(out.raw.starts_with("data:image/png;base64,"));
+        let entries = logs.into_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].stage, "map.raster");
+        assert!(entries[0].message.contains("transcoded"));
+    }
+
+    #[test]
+    fn webp_garbage_falls_back_to_input_with_warning() {
+        let mut logs = mk_logs();
+        let uri = mk_uri("image/webp", "bm90IGEgcmVhbCB3ZWJw");
         let out = transcode_if_needed(uri.clone(), &mut logs);
-        // Stub: bytes/mime unchanged.
         assert_eq!(out.mime, "image/webp");
         assert_eq!(out.base64, uri.base64);
         let entries = logs.into_entries();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].stage, "map.raster");
-        assert!(entries[0].message.contains("webp-transcode"));
+        assert!(entries[0].message.contains("transcode failed"));
     }
 }

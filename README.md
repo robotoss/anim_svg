@@ -63,6 +63,14 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 
 CocoaPods runs the Rust build script during `pod install`.
 
+`AnimSvgView.network` depends on `flutter_cache_manager`, whose transitive `path_provider_foundation` needs **Swift Package Manager** to link its ObjC runtime on iOS. Enable SPM once per machine; Flutter then integrates SPM into your Xcode project automatically alongside CocoaPods:
+
+```bash
+flutter config --enable-swift-package-manager
+```
+
+Without this flag iOS will crash at startup with `Couldn't resolve native function 'DOBJC_initializeApi'` the first time `AnimSvgView.network` is built. You don't need SPM if you only use `AnimSvgView.asset` / `.string`.
+
 ## Usage
 
 ### Widget
@@ -84,6 +92,22 @@ In-memory SVG:
 AnimSvgView.string(svgXml, width: 240, height: 240);
 ```
 
+Remote SVG (cached on disk for 7 days):
+
+```dart
+AnimSvgView.network(
+  'https://example.com/sticker.svg',
+  width: 300,
+  height: 300,
+  fit: BoxFit.contain,         // default; same semantics as Image
+  alignment: Alignment.center, // default
+  loadingBuilder: (ctx) => const CircularProgressIndicator(),
+  errorBuilder: (ctx, err, stack) => const Icon(Icons.broken_image),
+);
+```
+
+`fit` / `alignment` are accepted by **every** factory (`.asset`, `.string`, `.network`) and behave the same way as on `Image` — the rendered Lottie surface is wrapped in a `FittedBox` because thorvg itself paints at 1:1.
+
 ### Direct conversion (no widget)
 
 ```dart
@@ -94,9 +118,42 @@ final lottieMap  = converter.convertToMap(svgXml);   // Map<String, dynamic>
 final lottieJson = converter.convertToJson(svgXml);  // String
 ```
 
+### Networking & caching
+
+`AnimSvgView.network(url)` runs a tiny three-step pipeline:
+
+1. **Cache lookup.** Ask `LottieCacheManager` (a `flutter_cache_manager` instance) for an entry keyed by the URL string. If a fresh entry exists, its bytes are returned immediately — no HTTP, no FFI.
+2. **HTTP GET.** On a miss, fetch the SVG with `package:http`. Non-200 responses raise `NetworkSvgException(url, statusCode: …)` and are logged at `error` via the active `AnimSvgLogger` (defaults to `DeveloperLogger`).
+3. **Convert + store.** Feed the SVG body to the Rust core (`ConvertSvgToLottie`) and write the resulting Lottie JSON into the cache.
+
+What the cache stores and where:
+
+| Property | Value |
+| --- | --- |
+| Payload | the **converted Lottie JSON** (not the raw SVG) — replays skip both the network and the FFI converter |
+| Key | the URL string (one cached file per unique URL) |
+| TTL | **7 days** (`Config.stalePeriod`) |
+| Capacity | 200 entries, LRU eviction |
+| Location | platform `getTemporaryDirectory()` — managed by `flutter_cache_manager` |
+| Store key | `anim_svg_lottie_v2` — bumped if the converter output format changes |
+
+Hooks for advanced cases:
+
+```dart
+// Pre-warm the cache at app start (no widget needed).
+final loader = NetworkSvgLoader();
+await loader.loadLottieBytes('https://example.com/hero.svg');
+
+// Wipe everything (e.g. on user "Clear cache" action).
+await LottieCacheManager.instance.emptyCache();
+
+// Use a custom CacheManager for tests or stricter eviction.
+AnimSvgView.network(url, width: 200, height: 200, cacheManager: myManager);
+```
+
 ### Debugging
 
-Plug a logger in and every stage of the native pipeline streams back into your app's logs:
+Plug a logger in and every stage of the pipeline streams back into your app's logs — including the network path (`network.fetch`, `network.cache.hit/store`) and `NetworkSvgException` (URL + status):
 
 ```dart
 AnimSvgView.asset(
@@ -108,6 +165,8 @@ AnimSvgView.asset(
   },
 );
 ```
+
+`DeveloperLogger` is the default if no logger is passed, so network failures (DNS, 404, parse) always surface in the `anim_svg` channel of DevTools / IDE console even with the silent `Icon(Icons.broken_image)` fallback.
 
 ## Supported input
 
@@ -170,7 +229,7 @@ CSS `offset-path: path('M…Z')`, `offset-distance`, `offset-rotate: auto | reve
 
 - `data:image/png;base64,...` — passes through verbatim.
 - `data:image/jpeg;base64,...` — passes through verbatim.
-- `data:image/webp;base64,...` — ⚠️ WebP decode/transcode is not yet implemented in the native core and will render blank.
+- `data:image/webp;base64,...` — decoded with pure-rust [`image-webp`](https://crates.io/crates/image-webp) and re-encoded as PNG before handing to thorvg (thorvg 1.0's Flutter build ships PNG/JPG loaders only). On decode failure the original URI is kept, a warning is logged under `map.raster`, and that asset renders blank — the rest of the document still converts.
 - External `href="http(s)://..."` — **not fetched**. Conversion fails with `UnsupportedFeatureException` by design.
 
 ### Lottie output
@@ -209,6 +268,7 @@ flutter run
 - **[thorvg](https://www.thorvg.org/)** ([GitHub](https://github.com/thorvg/thorvg) · [pub.dev](https://pub.dev/packages/thorvg)) — fast, actively maintained C++ vector + Lottie renderer. None of this exists without it.
 - **Lottie** / [bodymovin](https://github.com/airbnb/lottie-web) — the format that makes animated vector portable.
 - [`package:xml`](https://pub.dev/packages/xml), [`package:image`](https://pub.dev/packages/image), [`package:ffi`](https://pub.dev/packages/ffi) — the Dart side's load-bearing libraries.
+- [`flutter_cache_manager`](https://pub.dev/packages/flutter_cache_manager) and [`http`](https://pub.dev/packages/http) — power the disk cache and network loader behind `AnimSvgView.network`.
 
 ## License
 
