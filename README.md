@@ -63,6 +63,14 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 
 CocoaPods runs the Rust build script during `pod install`.
 
+`AnimSvgView.network` depends on `flutter_cache_manager`, whose transitive `path_provider_foundation` needs **Swift Package Manager** to link its ObjC runtime on iOS. Enable SPM once per machine; Flutter then integrates SPM into your Xcode project automatically alongside CocoaPods:
+
+```bash
+flutter config --enable-swift-package-manager
+```
+
+Without this flag iOS will crash at startup with `Couldn't resolve native function 'DOBJC_initializeApi'` the first time `AnimSvgView.network` is built. You don't need SPM if you only use `AnimSvgView.asset` / `.string`.
+
 ## Usage
 
 ### Widget
@@ -221,7 +229,7 @@ CSS `offset-path: path('M…Z')`, `offset-distance`, `offset-rotate: auto | reve
 
 - `data:image/png;base64,...` — passes through verbatim.
 - `data:image/jpeg;base64,...` — passes through verbatim.
-- `data:image/webp;base64,...` — ⚠️ WebP decode/transcode is not yet implemented in the native core and will render blank.
+- `data:image/webp;base64,...` — decoded with pure-rust [`image-webp`](https://crates.io/crates/image-webp) and re-encoded as PNG before handing to thorvg (thorvg 1.0's Flutter build ships PNG/JPG loaders only). On decode failure the original URI is kept, a warning is logged under `map.raster`, and that asset renders blank — the rest of the document still converts.
 - External `href="http(s)://..."` — **not fetched**. Conversion fails with `UnsupportedFeatureException` by design.
 
 ### Lottie output
