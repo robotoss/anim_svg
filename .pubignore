@@ -1,0 +1,41 @@
+# Build / tool outputs.
+build/
+.dart_tool/
+pubspec.lock
+*.log
+
+# Prebuilt native artifacts — fetched from GitHub Releases by
+# tool/download_prebuilt.sh at pod install / gradle build time.
+ios/Frameworks/
+android/src/main/jniLibs/
+
+# Rust build output.
+native/anim_svg_core/target/
+
+# Example app's build artifacts, platform wrappers, and test-only code.
+# The Dart source (example/lib, example/pubspec.yaml, example/assets) still
+# ships so pub.dev can render the Example tab.
+example/ios/
+example/android/
+example/.dart_tool/
+example/build/
+example/pubspec.lock
+example/integration_test/
+
+# Vendored thorvg.flutter fork is only used by the example app via
+# dependency_overrides. Published consumers get thorvg from pub.dev directly.
+thorvg.flutter/
+
+# Tests and fixtures — dev-only.
+test/
+
+# Internal documentation workspace.
+brain/
+
+# IDE / editor state.
+.idea/
+.vscode/
+*.iml
+
+# macOS / misc.
+.DS_Store

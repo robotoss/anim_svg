@@ -5,13 +5,14 @@
 Pod::Spec.new do |s|
   s.name             = 'anim_svg'
   s.version          = '0.0.1'
-  s.summary          = 'A new Flutter project.'
+  s.summary          = 'Flutter widget for animated SVG rendered via Lottie + thorvg.'
   s.description      = <<-DESC
-A new Flutter project.
+Flutter widget for animated SVG. Transpiles SMIL, CSS @keyframes, and Svgator
+animations to Lottie JSON, rendered by the native thorvg engine.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/robotoss/anim_svg'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'zoxo@outlook.com' }
+  s.author           = { 'Yeftifeyev Konstantin' => 'zoxo@outlook.com' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
