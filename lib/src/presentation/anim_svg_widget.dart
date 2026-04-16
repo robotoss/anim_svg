@@ -4,15 +4,27 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:thorvg/thorvg.dart' as tvg;
 
-import '../core/errors.dart';
 import '../core/logger.dart';
+import '../data/network/network_svg_loader.dart';
 import '../domain/usecases/convert_svg_to_lottie.dart';
 import 'anim_svg_controller.dart';
 
 /// Renders an animated SVG by converting it to Lottie JSON in-process and
 /// handing the JSON to thorvg.
+///
+/// Three sources are supported via factory constructors:
+///   * [AnimSvgView.asset]   — bundled asset path
+///   * [AnimSvgView.string]  — raw SVG string already in memory
+///   * [AnimSvgView.network] — HTTP URL, with disk cache for the converted
+///                             Lottie JSON (TTL 7 days, keyed by URL)
+///
+/// Layout: every constructor accepts [fit] and [alignment] with the same
+/// semantics as `Image` (default `BoxFit.contain` / `Alignment.center`).
+/// thorvg itself rasterises at 1:1 — fit/alignment are applied via a
+/// [FittedBox] wrapper.
 ///
 /// Debugging: pass a [logger] (e.g. `DeveloperLogger()` or `PrintLogger()`)
 /// to trace every stage. Use [onLottieReady] to capture the generated JSON
@@ -20,28 +32,36 @@ import 'anim_svg_controller.dart';
 class AnimSvgView extends StatefulWidget {
   const AnimSvgView._({
     super.key,
-    required this.svgLoader,
+    this.svgLoader,
+    this.lottieBytesLoader,
     required this.sourceLabel,
     required this.width,
     required this.height,
+    this.fit = BoxFit.contain,
+    this.alignment = Alignment.center,
     this.repeat = true,
     this.animate = true,
     this.controller,
     this.errorBuilder,
+    this.loadingBuilder,
     this.placeholderBuilder,
     this.logger,
     this.onLottieReady,
-  });
+  }) : assert(svgLoader != null || lottieBytesLoader != null,
+            'Exactly one of svgLoader or lottieBytesLoader must be provided');
 
   factory AnimSvgView.asset(
     String assetPath, {
     Key? key,
     required double width,
     required double height,
+    BoxFit fit = BoxFit.contain,
+    AlignmentGeometry alignment = Alignment.center,
     bool repeat = true,
     bool animate = true,
     AnimSvgController? controller,
     Widget Function(BuildContext, Object, StackTrace?)? errorBuilder,
+    WidgetBuilder? loadingBuilder,
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
@@ -52,10 +72,13 @@ class AnimSvgView extends StatefulWidget {
       sourceLabel: 'asset:$assetPath',
       width: width,
       height: height,
+      fit: fit,
+      alignment: alignment,
       repeat: repeat,
       animate: animate,
       controller: controller,
       errorBuilder: errorBuilder,
+      loadingBuilder: loadingBuilder,
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
@@ -67,10 +90,13 @@ class AnimSvgView extends StatefulWidget {
     Key? key,
     required double width,
     required double height,
+    BoxFit fit = BoxFit.contain,
+    AlignmentGeometry alignment = Alignment.center,
     bool repeat = true,
     bool animate = true,
     AnimSvgController? controller,
     Widget Function(BuildContext, Object, StackTrace?)? errorBuilder,
+    WidgetBuilder? loadingBuilder,
     Widget Function(BuildContext)? placeholderBuilder,
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
@@ -81,24 +107,84 @@ class AnimSvgView extends StatefulWidget {
       sourceLabel: 'string(${svgXml.length} bytes)',
       width: width,
       height: height,
+      fit: fit,
+      alignment: alignment,
       repeat: repeat,
       animate: animate,
       controller: controller,
       errorBuilder: errorBuilder,
+      loadingBuilder: loadingBuilder,
       placeholderBuilder: placeholderBuilder,
       logger: logger,
       onLottieReady: onLottieReady,
     );
   }
 
-  final Future<String> Function() svgLoader;
+  /// Loads an animated SVG from [url], converts it to Lottie JSON and
+  /// caches the converted bytes on disk for 7 days.
+  ///
+  /// On a cache hit the network and the Rust converter are both skipped.
+  /// Pass a custom [cacheManager] to override the default policy (TTL,
+  /// max objects, location).
+  factory AnimSvgView.network(
+    String url, {
+    Key? key,
+    required double width,
+    required double height,
+    BoxFit fit = BoxFit.contain,
+    AlignmentGeometry alignment = Alignment.center,
+    bool repeat = true,
+    bool animate = true,
+    AnimSvgController? controller,
+    Widget Function(BuildContext, Object, StackTrace?)? errorBuilder,
+    WidgetBuilder? loadingBuilder,
+    Widget Function(BuildContext)? placeholderBuilder,
+    AnimSvgLogger? logger,
+    void Function(Uint8List lottieBytes)? onLottieReady,
+    BaseCacheManager? cacheManager,
+    NetworkSvgLoader? loader,
+  }) {
+    final effectiveLoader = loader ??
+        NetworkSvgLoader(
+          cacheManager: cacheManager,
+          logger: logger ?? DeveloperLogger(),
+        );
+    return AnimSvgView._(
+      key: key,
+      lottieBytesLoader: () => effectiveLoader.loadLottieBytes(url),
+      sourceLabel: 'network:$url',
+      width: width,
+      height: height,
+      fit: fit,
+      alignment: alignment,
+      repeat: repeat,
+      animate: animate,
+      controller: controller,
+      errorBuilder: errorBuilder,
+      loadingBuilder: loadingBuilder,
+      placeholderBuilder: placeholderBuilder,
+      logger: logger,
+      onLottieReady: onLottieReady,
+    );
+  }
+
+  final Future<String> Function()? svgLoader;
+  final Future<Uint8List> Function()? lottieBytesLoader;
   final String sourceLabel;
   final double width;
   final double height;
+  final BoxFit fit;
+  final AlignmentGeometry alignment;
   final bool repeat;
   final bool animate;
   final AnimSvgController? controller;
   final Widget Function(BuildContext, Object, StackTrace?)? errorBuilder;
+
+  /// Built while the source is loading / converting (network only path
+  /// reaches this state in practice; assets resolve synchronously enough
+  /// that the placeholder rarely renders). Defaults to a centered
+  /// [CircularProgressIndicator].
+  final WidgetBuilder? loadingBuilder;
 
   /// Called when conversion succeeds but produces zero renderable layers
   /// (e.g. an SVG that is entirely vector shapes/filters we don't yet
@@ -153,8 +239,23 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
     log.info('widget', 'load start',
         fields: {'source': widget.sourceLabel, 'w': widget.width, 'h': widget.height});
     try {
+      if (widget.lottieBytesLoader != null) {
+        final sw = Stopwatch()..start();
+        final bytes = await widget.lottieBytesLoader!();
+        sw.stop();
+        final layerCount = _layerCountFromLottieBytes(bytes);
+        log.info('widget', 'lottie ready (preconverted)', fields: {
+          'json_bytes': bytes.length,
+          'layers': layerCount,
+          'duration_ms': sw.elapsedMilliseconds,
+        });
+        if (layerCount == 0) return _PipelineOutput(Uint8List(0), 0);
+        widget.onLottieReady?.call(bytes);
+        return _PipelineOutput(bytes, layerCount);
+      }
+
       final loadSw = Stopwatch()..start();
-      final svg = await widget.svgLoader();
+      final svg = await widget.svgLoader!();
       loadSw.stop();
       log.debug('widget.load', 'svg loaded', fields: {
         'bytes': svg.length,
@@ -195,6 +296,20 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
     }
   }
 
+  int _layerCountFromLottieBytes(Uint8List bytes) {
+    try {
+      final decoded = jsonDecode(utf8.decode(bytes));
+      if (decoded is Map<String, Object?>) {
+        final layers = decoded['layers'];
+        if (layers is List) return layers.length;
+      }
+    } catch (_) {
+      // Cached bytes that don't parse as Lottie JSON are treated as
+      // having renderable content; thorvg will surface the real error.
+    }
+    return 1;
+  }
+
   String _head(String s) {
     final h = s.length > 120 ? '${s.substring(0, 120)}…' : s;
     return h.replaceAll('\n', ' ').replaceAll('  ', ' ');
@@ -232,29 +347,52 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
         if (snap.hasError) {
           final eb = widget.errorBuilder;
           if (eb != null) return eb(context, snap.error!, _lastStack);
-          return _defaultError(snap.error!, _lastStack);
+          return _defaultError();
         }
         if (!snap.hasData) {
-          return SizedBox(width: widget.width, height: widget.height);
+          final lb = widget.loadingBuilder;
+          return lb != null ? lb(context) : _defaultLoading();
         }
         final out = snap.data!;
         if (out.layerCount == 0) {
           final pb = widget.placeholderBuilder;
           return pb != null ? pb(context) : _defaultPlaceholder();
         }
-        return tvg.Lottie.memory(
-          out.bytes,
+        return SizedBox(
           width: widget.width,
           height: widget.height,
-          animate: widget.animate,
-          repeat: widget.repeat,
-          reverse: false,
-          onLoaded: (engine) {
-            _engine = engine;
-            _log.info('widget.engine', 'thorvg loaded');
-          },
+          child: FittedBox(
+            fit: widget.fit,
+            alignment: widget.alignment,
+            child: tvg.Lottie.memory(
+              out.bytes,
+              width: widget.width,
+              height: widget.height,
+              animate: widget.animate,
+              repeat: widget.repeat,
+              reverse: false,
+              onLoaded: (engine) {
+                _engine = engine;
+                _log.info('widget.engine', 'thorvg loaded');
+              },
+            ),
+          ),
         );
       },
+    );
+  }
+
+  Widget _defaultLoading() {
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
     );
   }
 
@@ -271,24 +409,14 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
     );
   }
 
-  Widget _defaultError(Object error, StackTrace? stack) {
-    final isKnown = error is UnsupportedFeatureException ||
-        error is ParseException ||
-        error is ConversionException;
-    final msg = isKnown ? error.toString() : 'anim_svg error: $error';
+  Widget _defaultError() {
     return SizedBox(
       width: widget.width,
       height: widget.height,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: SingleChildScrollView(
-            child: Text(
-              stack == null ? msg : '$msg\n\n$stack',
-              style: const TextStyle(color: Colors.red, fontSize: 10),
-              textAlign: TextAlign.left,
-            ),
-          ),
+      child: const Center(
+        child: Icon(
+          Icons.broken_image_outlined,
+          color: Colors.black26,
         ),
       ),
     );
