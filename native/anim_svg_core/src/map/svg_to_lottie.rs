@@ -1942,7 +1942,7 @@ impl Mat {
         } else {
             0.0
         };
-        let skew_deg = skew_rad * 180.0 / std::f64::consts::PI;
+        let skew_deg = -skew_rad * 180.0 / std::f64::consts::PI;
         TrsFold {
             tx: self.e,
             ty: self.f,
@@ -2001,8 +2001,8 @@ mod decompose_tests {
             composed.a, composed.b, composed.c, composed.d, t.sx, t.sy, t.rot_deg, t.skew_deg
         );
         assert!(
-            t.skew_deg.abs() > 1.0,
-            "expected skew ~30° for this rotation+shear matrix, got {}",
+            t.skew_deg < -1.0 && t.skew_deg > -90.0,
+            "expected negative skew (thorvg-convention) ~-30° for this matrix, got {}",
             t.skew_deg
         );
     }
