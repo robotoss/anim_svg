@@ -171,6 +171,39 @@ This means:
 - Match `width` to `(source_aspect × height)` to avoid wasted padding.
 - Capping `height` is the single most effective lever when you need to fit more animations on screen at 60 FPS.
 
+### Off-screen disposal
+
+Each mounted `AnimSvgView` holds a thorvg scene tree, an RGBA frame buffer (`renderScale² × W × H × 4` bytes — ≈720 KB for a 300×300 tile at `renderScale: 2.0`), and a platform texture surface. Inside long lists this adds up quickly.
+
+By default, `AnimSvgView` watches its own viewport visibility and tears down the native handle once it's been fully off-screen for `disposeDelay`. When the widget returns to the viewport, it waits `showDelay` before re-creating the handle — symmetric debounce that keeps fast scrolls from churning native resources.
+
+```dart
+AnimSvgView.network(
+  url,
+  width: 300,
+  height: 300,
+  // Defaults shown here for clarity; you can omit them.
+  disposeWhenInvisible: true,
+  disposeDelay: const Duration(milliseconds: 700),
+  showDelay: const Duration(milliseconds: 150),
+);
+```
+
+Tuning:
+
+| Knob | When to change |
+| --- | --- |
+| `disposeWhenInvisible: false` | Keep the native handle alive while the widget stays mounted. Useful for tests, golden snapshots, or when you've sized your list so all items fit on screen anyway. |
+| `disposeDelay` (lower, e.g. 200 ms) | Memory-constrained device or very long lists — reclaim sooner at the cost of more re-create churn during scrolling. |
+| `disposeDelay` (higher, e.g. 1500 ms) | User scrolls the list back and forth a lot; mask the small re-mount cost behind a longer grace window. |
+| `showDelay` (lower, e.g. 0 ms) | Fewer than ~10 simultaneous animations and you want the snappiest re-show; you accept paying one MethodChannel round-trip per fleeting scroll glance. |
+
+Limitations:
+
+- Visibility is detected geometrically against the viewport. **Items obscured by a `Stack` overlay in the same layer tree are NOT considered invisible** — the overlay covers them on screen but they're still painted underneath. If your UI flips between full-screen pages with a `Stack`, wrap the underlay branch in `Offstage` or `Visibility(visible: false)` at the call site to take it out of the tree entirely; that triggers our normal unmount path.
+- `TabBarView` inactive tabs *are* handled — we treat `TickerMode.of(context) == false` the same as zero visibility.
+- Re-showing pays roughly one MethodChannel `create` round-trip plus thorvg's per-instance native init. The Lottie JSON bytes are reused from the outer State, so no re-conversion happens.
+
 ### Direct conversion (no widget)
 
 ```dart
