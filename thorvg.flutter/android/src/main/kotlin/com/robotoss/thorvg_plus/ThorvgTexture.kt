@@ -1,6 +1,7 @@
 package com.robotoss.thorvg_plus
 
 import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Surface
 import io.flutter.view.TextureRegistry
@@ -105,13 +106,32 @@ internal class ThorvgTexture private constructor(
     fun dispose() {
         if (disposed) return
         disposed = true
+        // Two-phase teardown to avoid racing with Flutter's raster thread.
+        //
+        // Phase 1 (render thread): stop scheduling new frames and tear down
+        // the native handle. After this returns, no more
+        // ANativeWindow_unlockAndPost calls will be made on the Surface, so
+        // any frames still in flight on the consumer side can drain
+        // cleanly.
+        //
+        // Phase 2 (main thread): release the Surface and the
+        // SurfaceTextureEntry. `FlutterTextureRegistry.SurfaceTextureEntry`
+        // is documented to be torn down on the platform (main) thread —
+        // calling it from a HandlerThread leaks fence file descriptors and
+        // eventually crashes the raster thread inside
+        // `SurfaceTexture.updateTexImage` with "error dup'ing native fence
+        // fd". Posting back to the main looper makes the cleanup a regular
+        // platform-thread message, ordered after any in-flight texture
+        // delivery.
         handler.post {
             handler.removeCallbacks(tickRunnable)
-            try { surface.release() } catch (_: Throwable) {}
-            try { entry.release() } catch (_: Throwable) {}
             if (nativeHandle != 0L) {
                 nativeDestroy(nativeHandle)
                 nativeHandle = 0L
+            }
+            Handler(Looper.getMainLooper()).post {
+                try { surface.release() } catch (_: Throwable) {}
+                try { entry.release() } catch (_: Throwable) {}
             }
         }
     }
@@ -144,8 +164,12 @@ internal class ThorvgTexture private constructor(
     }
 
     private fun cleanupAfterFailedInitOnHandler() {
-        try { surface.release() } catch (_: Throwable) {}
-        try { entry.release() } catch (_: Throwable) {}
+        // Mirror the dispose split: cleanup of the texture entry must run
+        // on the main (platform) thread, not on the render handler thread.
+        Handler(Looper.getMainLooper()).post {
+            try { surface.release() } catch (_: Throwable) {}
+            try { entry.release() } catch (_: Throwable) {}
+        }
     }
 
     private fun startPlayingOnHandler() {
