@@ -50,7 +50,7 @@ class AnimSvgView extends StatefulWidget {
     this.onLottieReady,
     this.startDelay,
     this.renderScale = 1.0,
-    this.disposeWhenInvisible = false,
+    this.disposeWhenInvisible = true,
     this.disposeDelay = const Duration(milliseconds: 700),
     this.showDelay = const Duration(milliseconds: 150),
   }) : assert(svgLoader != null || lottieBytesLoader != null,
@@ -73,7 +73,7 @@ class AnimSvgView extends StatefulWidget {
     void Function(Uint8List lottieBytes)? onLottieReady,
     Duration? startDelay,
     double renderScale = 1.0,
-    bool disposeWhenInvisible = false,
+    bool disposeWhenInvisible = true,
     Duration disposeDelay = const Duration(milliseconds: 700),
     Duration showDelay = const Duration(milliseconds: 150),
   }) {
@@ -118,7 +118,7 @@ class AnimSvgView extends StatefulWidget {
     void Function(Uint8List lottieBytes)? onLottieReady,
     Duration? startDelay,
     double renderScale = 1.0,
-    bool disposeWhenInvisible = false,
+    bool disposeWhenInvisible = true,
     Duration disposeDelay = const Duration(milliseconds: 700),
     Duration showDelay = const Duration(milliseconds: 150),
   }) {
@@ -171,7 +171,7 @@ class AnimSvgView extends StatefulWidget {
     NetworkSvgLoader? loader,
     Duration? startDelay,
     double renderScale = 1.0,
-    bool disposeWhenInvisible = false,
+    bool disposeWhenInvisible = true,
     Duration disposeDelay = const Duration(milliseconds: 700),
     Duration showDelay = const Duration(milliseconds: 150),
   }) {
@@ -250,21 +250,15 @@ class AnimSvgView extends StatefulWidget {
   /// buffer when this widget is fully off-screen for [disposeDelay], and
   /// re-create them after [showDelay] of returning to visibility.
   ///
-  /// **Default `false`** (since v0.0.4). Enabling this on long, fast-
-  /// scrolling lists triggers a known Android `SurfaceTexture` file-
-  /// descriptor leak — the create/destroy churn outpaces SurfaceFlinger's
-  /// fence-FD reclamation, and after a few minutes the raster thread
-  /// crashes inside `updateTexImage` with `error dup'ing fence fd`. See
-  /// flutter/flutter#94916 and flutter-webrtc/flutter-webrtc#1948.
-  ///
-  /// The architectural fix is the upcoming migration to
-  /// `TextureRegistry.createSurfaceProducer` (Flutter 3.24+), which on
-  /// API 28+ uses `ImageReader`/`HardwareBuffer` instead of
-  /// `SurfaceTexture` and sidesteps the BufferQueue fence-FD pipeline.
-  /// Once that lands the default will flip back to `true`.
-  ///
-  /// Until then, enable this only on short or slow-scrolling lists where
-  /// the create/destroy rate is bounded.
+  /// Defaults to `true`. On Android API 28+ the underlying texture is
+  /// driven by `TextureRegistry.createSurfaceProducer` (since
+  /// `thorvg_plus 1.1.0`), which uses `ImageReader`/`HardwareBuffer`
+  /// internally — fast create/destroy under heavy scrolling is safe.
+  /// Below API 28 the engine falls back to `SurfaceTexture`; on those
+  /// devices very long, very fast scrolling sessions could in principle
+  /// hit the legacy BufferQueue fence-FD pressure documented in
+  /// flutter/flutter#94916. Set this to `false` on those targets if you
+  /// observe FD growth in `/proc/<pid>/fd` during long scrolls.
   ///
   /// **Limitation**: visibility is detected geometrically against the
   /// viewport. Items obscured by a `Stack` overlay in the same layer

@@ -8,14 +8,14 @@
   <a href="https://pub.dev/packages/anim_svg"><img src="https://img.shields.io/pub/v/anim_svg.svg" alt="pub version"></a>
   <a href="https://pub.dev/packages/anim_svg/score"><img src="https://img.shields.io/pub/likes/anim_svg" alt="pub likes"></a>
   <img src="https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg" alt="platforms">
-  <img src="https://img.shields.io/badge/flutter-%E2%89%A53.3-02569B.svg" alt="Flutter ≥3.3">
+  <img src="https://img.shields.io/badge/flutter-%E2%89%A53.24-02569B.svg" alt="Flutter ≥3.24">
   <img src="https://img.shields.io/badge/status-experimental-orange.svg" alt="experimental">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
 `anim_svg` turns an animated SVG — SMIL, CSS `@keyframes`, motion paths — into a Lottie 5.7 document at runtime and hands the result to [**thorvg**](https://www.thorvg.org/), a fast C++ vector + Lottie renderer. It's shipped to Flutter via [`package:thorvg_plus`](https://pub.dev/packages/thorvg_plus) — a source-built fork of `package:thorvg` that restores iOS simulator support (see *[Why `thorvg_plus`](#why-we-depend-on-thorvg_plus-instead-of-thorvg)* below). Conversion runs entirely inside a native Rust core (`anim_svg_core`) invoked through `dart:ffi`.
 
-> **Experimental (v0.0.2).** Public API may change between patch releases. Coverage grows with real-world input — if an SVG renders wrong, **open an issue with the file attached** and we'll add it to the fixture suite.
+> **Experimental (v0.0.4).** Public API may change between patch releases. Coverage grows with real-world input — if an SVG renders wrong, **open an issue with the file attached** and we'll add it to the fixture suite.
 
 ---
 
@@ -171,33 +171,31 @@ This means:
 - Match `width` to `(source_aspect × height)` to avoid wasted padding.
 - Capping `height` is the single most effective lever when you need to fit more animations on screen at 60 FPS.
 
-### Off-screen disposal (opt-in)
+### Off-screen disposal
 
 Each mounted `AnimSvgView` holds a thorvg scene tree, an RGBA frame buffer (`renderScale² × W × H × 4` bytes — ≈720 KB for a 300×300 tile at `renderScale: 2.0`), and a platform texture surface. Inside long lists this adds up quickly.
 
-`AnimSvgView` can watch its own viewport visibility and tear down the native handle once it's been fully off-screen for `disposeDelay`, then re-create it after `showDelay` of returning to visibility — symmetric debounce against fast-scroll churn.
+By default `AnimSvgView` watches its own viewport visibility and tears down the native handle once the widget has been fully off-screen for `disposeDelay`, then re-creates it after `showDelay` of returning to visibility — symmetric debounce that keeps fast scrolls from churning native resources.
 
 ```dart
 AnimSvgView.network(
   url,
   width: 300,
   height: 300,
-  disposeWhenInvisible: true,                     // off by default — see warning
+  // Defaults shown here for clarity; you can omit them.
+  disposeWhenInvisible: true,
   disposeDelay: const Duration(milliseconds: 700),
   showDelay: const Duration(milliseconds: 150),
 );
 ```
 
-> **⚠ Default is `false` since v0.0.4.** Enabling this on long, fast-scrolling lists triggers a known Android `SurfaceTexture` file-descriptor leak ([flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916), [flutter-webrtc/flutter-webrtc#1948](https://github.com/flutter-webrtc/flutter-webrtc/issues/1948)) — the create/destroy churn outpaces SurfaceFlinger's fence-FD reclamation, and after a few minutes the raster thread crashes inside `updateTexImage` with `error dup'ing fence fd`.
->
-> The architectural fix is the upcoming migration to `TextureRegistry.createSurfaceProducer` (Flutter 3.24+), which on API 28+ uses `ImageReader`/`HardwareBuffer` instead of `SurfaceTexture` and sidesteps the BufferQueue fence-FD pipeline. Once that lands the default will flip back to `true`.
->
-> Until then, enable this only on short or slow-scrolling lists where the create/destroy rate is bounded. Items past `ListView.builder`'s `cacheExtent` are still unmounted naturally — you only lose the *within-cacheExtent-but-off-viewport* freeing.
+On Android the texture lifecycle is driven by `TextureRegistry.createSurfaceProducer` (since `thorvg_plus 1.1.0`). On API 28+ this is backed by `ImageReader` / `HardwareBuffer`, so create/destroy cycles stay cheap even under sustained fast-scroll workloads. On API < 28 the engine transparently falls back to `SurfaceTexture` — fine for typical use, but very long fast-scroll sessions on those older devices can in principle hit the legacy `BufferQueue` fence-FD pressure documented in [flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916). If you observe FD growth in `/proc/<pid>/fd` during long scrolls on those targets, opt out via `disposeWhenInvisible: false`.
 
-Tuning when enabled:
+Tuning:
 
 | Knob | When to change |
 | --- | --- |
+| `disposeWhenInvisible: false` | Keep the native handle alive while the widget stays mounted. Useful for tests, golden snapshots, tightly-scoped lists where every item is on-screen at rest, or as a safety opt-out on Android API < 28 (see above). |
 | `disposeDelay` (lower, e.g. 200 ms) | Memory-constrained device or very long lists — reclaim sooner at the cost of more re-create churn during scrolling. |
 | `disposeDelay` (higher, e.g. 1500 ms) | User scrolls the list back and forth a lot; mask the small re-mount cost behind a longer grace window. |
 | `showDelay` (lower, e.g. 0 ms) | Fewer than ~10 simultaneous animations and you want the snappiest re-show; you accept paying one MethodChannel round-trip per fleeting scroll glance. |
