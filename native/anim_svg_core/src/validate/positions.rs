@@ -158,6 +158,8 @@ mod tests {
             },
             rotation: LottieScalarProp::Static { value: 0.0 },
             opacity: LottieScalarProp::Static { value: 100.0 },
+            skew: LottieScalarProp::Static { value: 0.0 },
+            skew_axis: LottieScalarProp::Static { value: 0.0 },
         };
         LottieLayer::Shape(LottieShapeLayer {
             common,

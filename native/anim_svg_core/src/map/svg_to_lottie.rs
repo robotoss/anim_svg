@@ -1231,12 +1231,19 @@ fn build_leaf_local_transform(
 
     let opacity = build_opacity(inherited_non_transform, leaf_own_non_transform, ctx.frame_rate, logs);
 
+    let skew = LottieScalarProp::Static {
+        value: folded.skew_deg,
+    };
+    let skew_axis = LottieScalarProp::Static { value: 0.0 };
+
     LottieTransform {
         anchor,
         position,
         scale,
         rotation,
         opacity,
+        skew,
+        skew_axis,
     }
 }
 
@@ -1297,6 +1304,7 @@ fn build_baked_transform(
     let mut p_kfs: Vec<LottieVectorKeyframe> = Vec::new();
     let mut s_kfs: Vec<LottieVectorKeyframe> = Vec::new();
     let mut r_kfs: Vec<LottieScalarKeyframe> = Vec::new();
+    let mut sk_kfs: Vec<LottieScalarKeyframe> = Vec::new();
 
     for i in 0..k_times.len() {
         let t = k_times[i];
@@ -1348,6 +1356,13 @@ fn build_baked_transform(
             bezier_out: out_h,
             bezier_in: in_h,
         });
+        sk_kfs.push(LottieScalarKeyframe {
+            time: frame,
+            start: trs.skew_deg,
+            hold,
+            bezier_out: out_h,
+            bezier_in: in_h,
+        });
     }
 
     unwrap_rotation_keyframes(&mut r_kfs);
@@ -1355,6 +1370,7 @@ fn build_baked_transform(
     let position = collapse_vector(p_kfs);
     let scale = collapse_vector(s_kfs);
     let rotation = collapse_scalar(r_kfs);
+    let skew = collapse_scalar(sk_kfs);
 
     let opacity = build_opacity(inherited_non_transform, leaf_own_non_transform, ctx.frame_rate, logs);
 
@@ -1366,6 +1382,8 @@ fn build_baked_transform(
         scale,
         rotation,
         opacity,
+        skew,
+        skew_axis: LottieScalarProp::Static { value: 0.0 },
     }
 }
 
@@ -1532,6 +1550,8 @@ fn build_anchor_pivot_transform(
         scale,
         rotation,
         opacity,
+        skew: LottieScalarProp::Static { value: 0.0 },
+        skew_axis: LottieScalarProp::Static { value: 0.0 },
     })
 }
 
@@ -1899,10 +1919,7 @@ impl Mat {
     }
 
     fn decompose_trs(&self) -> TrsFold {
-        // Diagonal fast path preserves sign on mirror sprites.
         if self.b.abs() < 1e-9 && self.c.abs() < 1e-9 {
-            // Seam-closing bias for mirror-pair sprites: nudge 2 units
-            // toward the flip axis. Same trade-off as Dart.
             let tx = if self.a < 0.0 { self.e - 2.0 } else { self.e };
             let ty = if self.d < 0.0 { self.f - 2.0 } else { self.f };
             return TrsFold {
@@ -1911,21 +1928,28 @@ impl Mat {
                 rot_deg: 0.0,
                 sx: self.a,
                 sy: self.d,
+                skew_deg: 0.0,
             };
         }
         let det = self.a * self.d - self.b * self.c;
-        let sx = (self.a * self.a + self.b * self.b).sqrt();
-        let mut sy = (self.c * self.c + self.d * self.d).sqrt();
-        if det < 0.0 {
-            sy = -sy;
-        }
+        let sx_sq = self.a * self.a + self.b * self.b;
+        let sx = sx_sq.sqrt();
+        let sy = if sx > 1e-9 { det / sx } else { 0.0 };
         let rot = self.b.atan2(self.a) * 180.0 / std::f64::consts::PI;
+        let cross = self.a * self.c + self.b * self.d;
+        let skew_rad = if sx_sq > 1e-9 && sy.abs() > 1e-9 {
+            (cross / (sx * sy)).atan()
+        } else {
+            0.0
+        };
+        let skew_deg = skew_rad * 180.0 / std::f64::consts::PI;
         TrsFold {
             tx: self.e,
             ty: self.f,
             rot_deg: rot,
             sx,
             sy,
+            skew_deg,
         }
     }
 }
@@ -1937,11 +1961,52 @@ struct TrsFold {
     rot_deg: f64,
     sx: f64,
     sy: f64,
+    skew_deg: f64,
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod decompose_tests {
+    use super::*;
+
+    #[test]
+    fn rotation_only_no_skew() {
+        let m = Mat::rotate(30.0);
+        let t = m.decompose_trs();
+        assert!((t.rot_deg - 30.0).abs() < 1e-6, "rot {}", t.rot_deg);
+        assert!(t.skew_deg.abs() < 1e-6, "skew {}", t.skew_deg);
+        assert!((t.sx - 1.0).abs() < 1e-6);
+        assert!((t.sy - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rotation_plus_uniform_scale_no_skew() {
+        let m = Mat::rotate(45.0).multiply(&Mat::scale(2.0, 2.0));
+        let t = m.decompose_trs();
+        assert!((t.rot_deg - 45.0).abs() < 1e-6);
+        assert!(t.skew_deg.abs() < 1e-6, "skew should be ~0, got {}", t.skew_deg);
+    }
+
+    #[test]
+    fn anim5_path_matrix_extracts_skew() {
+        let outer = Mat::from_row_major(&[0.385842, 0.0, 0.0, 0.385842, 2.21, -4.37]);
+        let inner = Mat::from_row_major(&[0.710141, -0.41, 0.71, 0.409919, -555.097, 292.263]);
+        let composed = outer.multiply(&inner);
+        let t = composed.decompose_trs();
+        eprintln!(
+            "composed: a={} b={} c={} d={}; sx={} sy={} rot={} skew={}",
+            composed.a, composed.b, composed.c, composed.d, t.sx, t.sy, t.rot_deg, t.skew_deg
+        );
+        assert!(
+            t.skew_deg.abs() > 1.0,
+            "expected skew ~30° for this rotation+shear matrix, got {}",
+            t.skew_deg
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {

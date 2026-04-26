@@ -407,6 +407,8 @@ fn transform_map(t: &LottieTransform) -> Value {
         "s": vector_prop(&t.scale),
         "r": scalar_prop(&t.rotation),
         "o": scalar_prop(&t.opacity),
+        "sk": scalar_prop(&t.skew),
+        "sa": scalar_prop(&t.skew_axis),
     })
 }
 
