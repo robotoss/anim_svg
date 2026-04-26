@@ -265,7 +265,7 @@ final class ThorvgTexture: NSObject, FlutterTexture {
             frameNo: rounded,
             width: Int32(renderWidth),
             height: Int32(renderHeight),
-            into: base,
+            intoBuffer: base,
             rowBytes: rowBytes
         )
         if !ok { return }

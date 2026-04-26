@@ -39,10 +39,19 @@ Pod::Spec.new do |s|
     'thorvg_ext/src/loaders/raw/*.{cpp,h}',
   ]
 
-  # ThorvgBridge.h must be public so the Swift sources in the same pod can
+  # Only ThorvgBridge.h is public — the Swift sources in the same pod
   # see the ObjC interface through the auto-generated umbrella header.
+  #
+  # `thorvg.h` is intentionally NOT public: it is a C++ header that
+  # `#include`s `<cstdint>` / `<functional>` / `<list>`, and CocoaPods'
+  # auto-generated umbrella is parsed in Objective-C context when Swift
+  # builds the module — the C++ standard headers fail to resolve and
+  # the build dies with `'cstdint' file not found`. The pod's own C++
+  # sources (`plugin_src/*.cpp`, `tvgFlutterLottieAnimation.cpp`) reach
+  # `thorvg.h` via the project's HEADER_SEARCH_PATHS, not via the
+  # public-headers path, so dropping it from this list breaks nothing
+  # internally.
   s.public_header_files = [
-    'thorvg_ext/inc/thorvg.h',
     'Classes/ThorvgBridge.h',
   ]
   s.libraries = ['c++', 'z']
