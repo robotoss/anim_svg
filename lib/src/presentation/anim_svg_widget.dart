@@ -330,6 +330,9 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
     final enabled = TickerMode.of(context);
     if (enabled == _tickerEnabled) return;
     _tickerEnabled = enabled;
+    _log.debug('widget.visibility',
+        enabled ? 'ticker enabled' : 'ticker disabled (e.g. inactive TabBarView)',
+        fields: {'source': widget.sourceLabel});
     if (!enabled) {
       _scheduleHide(immediate: true);
     } else {
@@ -357,6 +360,12 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
   void _onVisibilityChanged(VisibilityInfo info) {
     if (!widget.disposeWhenInvisible) return;
     final visible = info.visibleFraction > 0 && _tickerEnabled;
+    _log.debug('widget.visibility', visible ? 'visible' : 'invisible',
+        fields: {
+          'source': widget.sourceLabel,
+          'fraction': info.visibleFraction,
+          'render_enabled': _renderEnabled,
+        });
     if (visible) {
       _scheduleShow();
     } else {
@@ -370,10 +379,16 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
     if (!_renderEnabled && _hideTimer == null) return; // already hidden
     _hideTimer?.cancel();
     final delay = immediate ? Duration.zero : widget.disposeDelay;
+    _log.debug('widget.visibility', 'hide scheduled', fields: {
+      'source': widget.sourceLabel,
+      'delay_ms': delay.inMilliseconds,
+    });
     _hideTimer = Timer(delay, () {
       _hideTimer = null;
       if (!mounted) return;
       if (_renderEnabled) {
+        _log.info('widget.visibility', 'hide fired → dispose native handle',
+            fields: {'source': widget.sourceLabel});
         setState(() {
           _renderEnabled = false;
           // The inner Lottie unmount will dispose the controller; clear
@@ -389,10 +404,16 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
     _hideTimer = null;
     if (_renderEnabled && _showTimer == null) return; // already shown
     _showTimer?.cancel();
+    _log.debug('widget.visibility', 'show scheduled', fields: {
+      'source': widget.sourceLabel,
+      'delay_ms': widget.showDelay.inMilliseconds,
+    });
     _showTimer = Timer(widget.showDelay, () {
       _showTimer = null;
       if (!mounted) return;
       if (!_renderEnabled) {
+        _log.info('widget.visibility', 'show fired → re-mount native handle',
+            fields: {'source': widget.sourceLabel});
         setState(() => _renderEnabled = true);
       }
     });
@@ -540,7 +561,8 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
                       renderScale: widget.renderScale,
                       onLoaded: (engine) {
                         _engine = engine;
-                        _log.info('widget.engine', 'thorvg loaded');
+                        _log.info('widget.engine', 'thorvg loaded',
+                            fields: {'source': widget.sourceLabel});
                       },
                     ),
                   )
