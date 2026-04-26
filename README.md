@@ -135,6 +135,72 @@ AnimSvgView.network(
 
 `fit` / `alignment` are accepted by **every** factory (`.asset`, `.string`, `.network`) and behave the same way as on `Image` — the rendered Lottie surface is wrapped in a `FittedBox` because thorvg itself paints at 1:1.
 
+### Parameters
+
+The same parameter set is accepted by all three factories (`.asset` / `.string` / `.network`); only the first positional arg — the source — differs. Everything else is keyword-only.
+
+#### Source (per factory)
+
+| Factory | First arg | Type | What it loads |
+| --- | --- | --- | --- |
+| `AnimSvgView.asset(path)` | `assetPath` | `String` | Bundled asset path (`'assets/foo.svg'`). Resolved via `rootBundle`. |
+| `AnimSvgView.string(svg)` | `svgXml` | `String` | Raw SVG XML already in memory. For runtime-generated or fetched-by-yourself sources. |
+| `AnimSvgView.network(url)` | `url` | `String` | HTTP(S) URL. Converted Lottie cached on disk for 7 days; replays skip both network and FFI. |
+
+#### Layout (required)
+
+| Param | Type | What it does |
+| --- | --- | --- |
+| `width` | `double` | Logical width of the widget. For portrait sources, drives lateral padding of the render buffer. |
+| `height` | `double` | Logical height. **Drives effective rasterization cost** (∝ `height²` for portrait sources) — capping `height` is the single most effective lever for fitting more animations on screen at 60 FPS. See *Performance tuning* below. |
+
+#### Layout (optional)
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `fit` | `BoxFit` | `BoxFit.contain` | How the rendered Lottie surface fits inside `width × height`. Same semantics as `Image`. |
+| `alignment` | `AlignmentGeometry` | `Alignment.center` | Where to position the surface inside its box when `fit` leaves slack. Same semantics as `Image`. |
+
+#### Playback
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `animate` | `bool` | `true` | If `false`, the engine paints frame 0 once and never advances. Useful for hero stills and golden-snapshot tests. |
+| `repeat` | `bool` | `true` | If `false`, the animation plays once and freezes on the last frame. |
+| `controller` | `AnimSvgController?` | `null` | Programmatic handle for `play()` / `pause()` / `seek(progress)`. Note: thorvg 1.0 has no native pause/seek primitives — `pause()` currently no-ops with a warning, kept as a forward-compat hook. |
+| `startDelay` | `Duration?` | `null` | Delays mounting of the thorvg engine. Use to **stagger initial `tvg.load`** calls across many list items in the same frame — a common cause of first-frame jank with 8+ visible animations. Set `index * 20.ms` in your `itemBuilder`. While pending, the widget renders its `loadingBuilder`. |
+
+#### Performance
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `renderScale` | `double` | `1.0` | Multiplier on `width` / `height` when sizing the native render buffer. `1.0` renders at logical pixels (softer on high-DPR but cheap); device DPR (2.0–3.0) is crisp but ~`scale²`× more CPU per frame. Full deep-dive: *Performance tuning: `renderScale`* below. |
+| `disposeWhenInvisible` | `bool` | `true` | Tear down the native handle once the widget is fully off-screen for `disposeDelay`, re-create after `showDelay` of returning. Full deep-dive: *Off-screen disposal* below. |
+| `disposeDelay` | `Duration` | `Duration(milliseconds: 700)` | Debounce: how long to wait after invisibility before tearing down. Lower = reclaim sooner; higher = mask flap during fast scrolls. |
+| `showDelay` | `Duration` | `Duration(milliseconds: 150)` | Symmetric debounce: how long to wait after returning to visibility before re-creating. Lower = snappier re-show; higher = avoid native creates for fleeting glances. |
+
+#### Builders (fallback UI)
+
+| Param | Type | Default | When it renders |
+| --- | --- | --- | --- |
+| `loadingBuilder` | `WidgetBuilder?` | centered `CircularProgressIndicator` | While the source is loading or converting. In practice only the `.network` path reaches this — assets resolve fast enough that the loading state usually doesn't render. |
+| `placeholderBuilder` | `WidgetBuilder?` | neutral grey "no renderable content" box | Conversion succeeded but produced zero renderable layers — e.g. an SVG made entirely of filter primitives or features we don't yet support. |
+| `errorBuilder` | `(ctx, err, stack) → Widget?` | broken-image icon | Conversion or load failed. The error and stack trace are passed in so callers can surface their own diagnostics. |
+
+#### Diagnostics
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `logger` | `AnimSvgLogger?` | `DeveloperLogger()` | Receives every pipeline event (load, convert, network, engine, visibility, hide/show), each tagged with `[anim_svg] [stage]`. Pass `PrintLogger()` for raw stdout, or your own implementation for telemetry — see *Debugging* below. |
+| `onLottieReady` | `(Uint8List) → void?` | `null` | Called once the converter produces Lottie JSON bytes. Paste the bytes into [lottiefiles.com/preview](https://lottiefiles.com/preview) to isolate render bugs from conversion bugs. |
+
+#### `.network`-only
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `cacheManager` | `BaseCacheManager?` | `LottieCacheManager.instance` | Override the default cache (TTL, capacity, location). See *Networking & caching* below. |
+| `loader` | `NetworkSvgLoader?` | injected default | Inject a custom HTTP loader. Useful for tests, mocks, or non-`http` transports. |
+
 ### Performance tuning: `renderScale`
 
 The thorvg renderer is software-only (CPU SwCanvas), so rasterization cost scales with the rendered pixel count. Every factory accepts an optional `renderScale` (default `1.0`) — a multiplier applied to logical `width` / `height` when sizing the native render buffer.
