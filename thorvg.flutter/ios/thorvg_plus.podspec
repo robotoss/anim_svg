@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'thorvg_plus'
-  s.version          = '1.0.0'
+  s.version          = '1.1.0'
   s.summary          = 'Source-built fork of thorvg for Flutter with full iOS simulator support.'
   s.description      = <<-DESC
     thorvg_plus is a source-built fork of the ThorVG Flutter runtime,

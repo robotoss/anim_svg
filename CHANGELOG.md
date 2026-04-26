@@ -1,3 +1,15 @@
+## 0.0.4
+
+* **Breaking**: minimum Flutter is now `>=3.24.0` (was `>=3.3.0`). Required for the
+  `TextureRegistry.SurfaceProducer` API used by `thorvg_plus 1.1.0`.
+* **Default flip**: `disposeWhenInvisible` now defaults to `false` across all
+  three factory constructors (`.asset` / `.string` / `.network`). Enabling it
+  on long, fast-scrolling lists triggers a known Android `SurfaceTexture`
+  file-descriptor leak — see [flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916)
+  and the README warning block. Will be flipped back to `true` once
+  `thorvg_plus`'s SurfaceProducer migration ships device-verified.
+* Bumped `thorvg_plus` constraint to `^1.1.0`.
+
 ## 0.0.3
 
 * Render optimisation for lists with multiple concurrent animations:

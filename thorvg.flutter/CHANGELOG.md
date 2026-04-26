@@ -1,3 +1,21 @@
+## 1.1.0
+
+* **Breaking**: minimum Flutter is now `>=3.24.0` (was `>=3.3.0`).
+* Migrated the Android `Texture`-based renderer from
+  `TextureRegistry.createSurfaceTexture()` to
+  `TextureRegistry.createSurfaceProducer()`. On API 28+ the engine selects an
+  `ImageReader`/`HardwareBuffer`-backed implementation, sidestepping the
+  `BufferQueue` fence-FD leak that crashed long-scroll sessions inside
+  `SurfaceTexture.updateTexImage` (see [flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916),
+  [flutter-webrtc/flutter-webrtc#1948](https://github.com/flutter-webrtc/flutter-webrtc/issues/1948)).
+  On API < 28 the engine transparently falls back to `SurfaceTexture` (no
+  regression).
+* `ThorvgTexture` now wires `SurfaceProducer.Callback` to handle engine-
+  driven surface destroy/recreate cycles (e.g. backgrounding); the cached
+  `ANativeWindow*` is detached on `onSurfaceDestroyed` and re-attached on
+  `onSurfaceCreated`, with the last frame re-rendered to avoid a black
+  re-show flash. No public API changes on the Dart side.
+
 ## 1.0.0 — forked from thorvg 1.0.0
 
 Initial release of `thorvg_plus`, a source-built fork of
