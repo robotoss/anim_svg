@@ -80,7 +80,6 @@ fn report_position_warnings_for_all_assets() {
 }
 
 #[test]
-#[ignore]
 fn anim_5_must_have_no_offscreen_layers() {
     let svg = load_svg("svg_anim_5.svg");
     let env = run_convert(&svg);

@@ -403,21 +403,51 @@ fn walk_group(
             ];
             let classifier = nested_anim::NestedAnimationClassifier::default();
             if classifier.can_chain_parent(&chain) {
+                let outer_parent_idx: Option<i32> = if !statics_before.is_empty() {
+                    let outer_name = format!("anim_g_outer_{}", layers.len());
+                    let idx = emit_null_layer_for(
+                        ctx,
+                        &outer_name,
+                        statics_before,
+                        &[],
+                        None,
+                        layers,
+                        logs,
+                    );
+                    Some(-(idx as i32) - 1)
+                } else {
+                    None
+                };
                 let ancestor_name = format!("anim_g_{}", layers.len());
                 let ancestor_idx = emit_null_layer_for(
                     ctx,
                     &ancestor_name,
                     &aa.group_statics,
                     &aa.anims,
-                    None,
+                    outer_parent_idx,
                     layers,
                     logs,
                 );
+                let after_parent_idx: i32 = if !statics_after.is_empty() {
+                    let after_name = format!("anim_g_after_{}", layers.len());
+                    let idx = emit_null_layer_for(
+                        ctx,
+                        &after_name,
+                        statics_after,
+                        &[],
+                        Some(-(ancestor_idx as i32) - 1),
+                        layers,
+                        logs,
+                    );
+                    -(idx as i32) - 1
+                } else {
+                    -(ancestor_idx as i32) - 1
+                };
                 let cur_idx = emit_null_layer_for_group(
                     ctx,
                     node,
                     &own_transform_anims,
-                    Some(-(ancestor_idx as i32) - 1),
+                    Some(after_parent_idx),
                     layers,
                     logs,
                 );
