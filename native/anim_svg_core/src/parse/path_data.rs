@@ -86,6 +86,10 @@ pub fn parse(d: &str, drop_closing_duplicate: bool, logs: &mut LogCollector) -> 
             let last = *verts.last().unwrap();
             let first = verts[0];
             if (last[0] - first[0]).abs() < 1e-6 && (last[1] - first[1]).abs() < 1e-6 {
+                let last_in = *ins.last().unwrap();
+                if ins[0][0].abs() < 1e-9 && ins[0][1].abs() < 1e-9 {
+                    ins[0] = last_in;
+                }
                 verts.pop();
                 ins.pop();
                 outs.pop();
@@ -704,5 +708,41 @@ mod tests {
         assert_eq!(c.vertices.len(), 3);
         assert!(c.closed);
         assert!(c.in_tangents.iter().all(|t| *t == [0.0, 0.0]));
+    }
+}
+
+#[cfg(test)]
+mod u41_top_ellipse_test {
+    use super::*;
+    use crate::log::LogLevel;
+
+    #[test]
+    fn anim5_top_ellipse_is_smooth_curve_no_straight_segment() {
+        let d = "M654.14,606.8c32.29,18.77,32.12,49.2-.39,68s-85,18.77-117.34,0-32.13-49.2.38-68s85.05-18.8,117.35,0Z";
+        let mut logs = LogCollector::new(LogLevel::Trace);
+        let contours = parse(d, true, &mut logs);
+        assert_eq!(contours.len(), 1, "one closed contour");
+        let c = &contours[0];
+        eprintln!("verts={} closed={}", c.vertices.len(), c.closed);
+        for (i, v) in c.vertices.iter().enumerate() {
+            eprintln!(
+                "V{} pos=({:.2}, {:.2}) in=({:.2}, {:.2}) out=({:.2}, {:.2})",
+                i, v[0], v[1],
+                c.in_tangents[i][0], c.in_tangents[i][1],
+                c.out_tangents[i][0], c.out_tangents[i][1]
+            );
+        }
+        let mut zero_tangent_count = 0;
+        for i in 0..c.vertices.len() {
+            let in_zero = c.in_tangents[i][0].abs() < 1e-6 && c.in_tangents[i][1].abs() < 1e-6;
+            let out_zero = c.out_tangents[i][0].abs() < 1e-6 && c.out_tangents[i][1].abs() < 1e-6;
+            if in_zero && out_zero {
+                zero_tangent_count += 1;
+            }
+        }
+        assert_eq!(
+            zero_tangent_count, 0,
+            "every vertex should have at least one non-zero tangent for a smooth ellipse-like curve",
+        );
     }
 }
