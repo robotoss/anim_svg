@@ -196,13 +196,28 @@ private:
     {
         errorMsg = NoError;
 
-        if (Initializer::init(0) != Result::Success)
+        // Initializer::init is reference-counted globally; only the first
+        // call's `threads` value takes effect (subsequent calls just bump
+        // the counter). Passing N>0 spins up N internal worker threads that
+        // SwCanvas::draw uses for parallel scanline rasterization, and also
+        // turns thorvg's internal ScopedLocks from no-ops into real
+        // mutexes (see tvgLock.h).
+        //
+        // 4 is a deliberate cap: too high adds task-dispatch overhead for
+        // small (<= 1 MPix) frames, too low loses parallelism on the slow
+        // SwCanvas path.
+        if (Initializer::init(4) != Result::Success)
         {
             errorMsg = "init() fail";
             return;
         }
 
-        canvas = SwCanvas::gen(EngineOption::None);
+        // EngineOption::SmartRender enables thorvg's partial-redraw path,
+        // gated by THORVG_PARTIAL_RENDER_SUPPORT in config.h. For mostly-
+        // static compositions (slot-machine style logos with small moving
+        // elements) this avoids re-rasterizing the unchanged background
+        // every frame, which is the common case in our list scenarios.
+        canvas = SwCanvas::gen(EngineOption::SmartRender);
         if (!canvas) errorMsg = "Invalid canvas";
 
         animation = Animation::gen();

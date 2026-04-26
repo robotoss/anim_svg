@@ -1,3 +1,19 @@
+## 0.0.4
+
+* **Breaking**: minimum Flutter is now `>=3.24.0` (was `>=3.3.0`). Required for the
+  `TextureRegistry.SurfaceProducer` API used by `thorvg_plus 1.1.0`.
+* **Fixed**: long fast-scroll sessions on Android no longer crash the raster
+  thread inside `SurfaceTexture.updateTexImage` with `error dup'ing fence fd`
+  ([flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916),
+  [flutter-webrtc/flutter-webrtc#1948](https://github.com/flutter-webrtc/flutter-webrtc/issues/1948)).
+  The fix lives in `thorvg_plus 1.1.0`'s migration from
+  `TextureRegistry.createSurfaceTexture` to
+  `TextureRegistry.createSurfaceProducer` — on API 28+ the engine now selects
+  an `ImageReader`/`HardwareBuffer`-backed implementation that sidesteps the
+  legacy `BufferQueue` fence-FD pipeline. API < 28 transparently falls back
+  to `SurfaceTexture` (no regression).
+* Bumped `thorvg_plus` constraint to `^1.1.0`.
+
 ## 0.0.3
 
 * Render optimisation for lists with multiple concurrent animations:

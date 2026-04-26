@@ -2,7 +2,7 @@ name: thorvg_plus
 description: >-
   Source-built fork of thorvg for Flutter with full iOS simulator support.
   Drop-in replacement while upstream thorvg.flutter#22 is unresolved.
-version: 1.0.0
+version: 1.1.0
 homepage: https://github.com/robotoss/anim_svg/tree/master/thorvg.flutter
 repository: https://github.com/robotoss/anim_svg
 issue_tracker: https://github.com/robotoss/anim_svg/issues
@@ -14,7 +14,7 @@ topics:
 
 environment:
   sdk: '>=3.2.4 <4.0.0'
-  flutter: '>=3.3.0'
+  flutter: '>=3.24.0'
 
 dependencies:
   ffi: ^2.1.2
@@ -32,5 +32,8 @@ flutter:
     platforms:
       android:
         ffiPlugin: true
+        package: com.robotoss.thorvg_plus
+        pluginClass: ThorvgPlusPlugin
       ios:
         ffiPlugin: true
+        pluginClass: ThorvgPlusPlugin

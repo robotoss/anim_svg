@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:thorvg_plus/thorvg.dart' as tvg;
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../core/logger.dart';
 import '../data/network/network_svg_loader.dart';
@@ -48,6 +49,10 @@ class AnimSvgView extends StatefulWidget {
     this.logger,
     this.onLottieReady,
     this.startDelay,
+    this.renderScale = 1.0,
+    this.disposeWhenInvisible = true,
+    this.disposeDelay = const Duration(milliseconds: 700),
+    this.showDelay = const Duration(milliseconds: 150),
   }) : assert(svgLoader != null || lottieBytesLoader != null,
             'Exactly one of svgLoader or lottieBytesLoader must be provided');
 
@@ -67,6 +72,10 @@ class AnimSvgView extends StatefulWidget {
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
     Duration? startDelay,
+    double renderScale = 1.0,
+    bool disposeWhenInvisible = true,
+    Duration disposeDelay = const Duration(milliseconds: 700),
+    Duration showDelay = const Duration(milliseconds: 150),
   }) {
     return AnimSvgView._(
       key: key,
@@ -85,6 +94,10 @@ class AnimSvgView extends StatefulWidget {
       logger: logger,
       onLottieReady: onLottieReady,
       startDelay: startDelay,
+      renderScale: renderScale,
+      disposeWhenInvisible: disposeWhenInvisible,
+      disposeDelay: disposeDelay,
+      showDelay: showDelay,
     );
   }
 
@@ -104,6 +117,10 @@ class AnimSvgView extends StatefulWidget {
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
     Duration? startDelay,
+    double renderScale = 1.0,
+    bool disposeWhenInvisible = true,
+    Duration disposeDelay = const Duration(milliseconds: 700),
+    Duration showDelay = const Duration(milliseconds: 150),
   }) {
     return AnimSvgView._(
       key: key,
@@ -122,6 +139,10 @@ class AnimSvgView extends StatefulWidget {
       logger: logger,
       onLottieReady: onLottieReady,
       startDelay: startDelay,
+      renderScale: renderScale,
+      disposeWhenInvisible: disposeWhenInvisible,
+      disposeDelay: disposeDelay,
+      showDelay: showDelay,
     );
   }
 
@@ -149,6 +170,10 @@ class AnimSvgView extends StatefulWidget {
     BaseCacheManager? cacheManager,
     NetworkSvgLoader? loader,
     Duration? startDelay,
+    double renderScale = 1.0,
+    bool disposeWhenInvisible = true,
+    Duration disposeDelay = const Duration(milliseconds: 700),
+    Duration showDelay = const Duration(milliseconds: 150),
   }) {
     final effectiveLoader = loader ??
         NetworkSvgLoader(
@@ -172,6 +197,10 @@ class AnimSvgView extends StatefulWidget {
       logger: logger,
       onLottieReady: onLottieReady,
       startDelay: startDelay,
+      renderScale: renderScale,
+      disposeWhenInvisible: disposeWhenInvisible,
+      disposeDelay: disposeDelay,
+      showDelay: showDelay,
     );
   }
 
@@ -206,6 +235,47 @@ class AnimSvgView extends StatefulWidget {
   /// While the delay is pending the widget renders its loadingBuilder.
   final Duration? startDelay;
 
+  /// Multiplier applied to logical [width] / [height] when sizing the
+  /// native render buffer. `1.0` (default) renders at logical pixels —
+  /// cheapest at the cost of softness on high-DPR displays. Bump to the
+  /// device DPR (e.g. 2.0–3.0) for crisper output, at roughly
+  /// `renderScale²` more rasterization cost.
+  ///
+  /// thorvg uses a CPU SwCanvas; for many simultaneous animations the
+  /// shared render thread can't keep up at full DPR, which is why the
+  /// default is `1.0`.
+  final double renderScale;
+
+  /// Tear down the native thorvg handle, GPU surface, and RGBA frame
+  /// buffer when this widget is fully off-screen for [disposeDelay], and
+  /// re-create them after [showDelay] of returning to visibility.
+  ///
+  /// Defaults to `true`. On Android API 28+ the underlying texture is
+  /// driven by `TextureRegistry.createSurfaceProducer` (since
+  /// `thorvg_plus 1.1.0`), which uses `ImageReader`/`HardwareBuffer`
+  /// internally — fast create/destroy under heavy scrolling is safe.
+  /// Below API 28 the engine falls back to `SurfaceTexture`; on those
+  /// devices very long, very fast scrolling sessions could in principle
+  /// hit the legacy BufferQueue fence-FD pressure documented in
+  /// flutter/flutter#94916. Set this to `false` on those targets if you
+  /// observe FD growth in `/proc/<pid>/fd` during long scrolls.
+  ///
+  /// **Limitation**: visibility is detected geometrically against the
+  /// viewport. Items obscured by a `Stack` overlay in the same layer
+  /// tree are *not* considered invisible. Use `Offstage` /
+  /// `Visibility(visible: false)` at the call site if you need to drop
+  /// memory in those cases.
+  final bool disposeWhenInvisible;
+
+  /// Wait this long after the widget becomes fully invisible before
+  /// disposing the native handle. Acts as a debounce against fast scrolls.
+  final Duration disposeDelay;
+
+  /// Wait this long after returning to visibility before re-creating the
+  /// native handle. Symmetric debounce that suppresses native creates for
+  /// items the user only fleetingly scrolls past.
+  final Duration showDelay;
+
   @override
   State<AnimSvgView> createState() => _AnimSvgViewState();
 }
@@ -219,10 +289,26 @@ class _PipelineOutput {
 class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
   late Future<_PipelineOutput> _lottieBytesFuture;
   // `Thorvg` engine type is not exported by thorvg 1.0; onLoaded gives us a
-  // handle whose `.play()` we call reflectively.
+  // handle whose `.play()` we call reflectively. Nulled when we tear the
+  // inner Lottie down for off-screen disposal so external callers don't
+  // forward play()/pause() to a stale, already-disposed controller.
   dynamic _engine;
   StackTrace? _lastStack;
   bool _mountReady = true;
+
+  // Visibility-driven render gating.
+  //
+  // The Phase 2 render path holds a non-trivial native footprint per
+  // mounted instance (thorvg scene + RGBA buffer + platform texture); off-
+  // screen items keep paying that cost until ListView.builder evicts them
+  // past `cacheExtent`. We supplement that natural lifecycle by tearing
+  // down the inner `tvg.Lottie.memory` subtree as soon as the widget has
+  // been fully invisible for `widget.disposeDelay`, and re-mounting it
+  // after `widget.showDelay` of returning to visibility.
+  bool _renderEnabled = true;
+  bool _tickerEnabled = true;
+  Timer? _hideTimer;
+  Timer? _showTimer;
 
   AnimSvgLogger get _log => widget.logger ?? DeveloperLogger();
 
@@ -242,6 +328,25 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // TabBarView and friends disable TickerMode on inactive tabs without
+    // changing geometric visibility, so VisibilityDetector wouldn't catch
+    // it. Treat ticker-disabled the same as fully off-screen.
+    final enabled = TickerMode.of(context);
+    if (enabled == _tickerEnabled) return;
+    _tickerEnabled = enabled;
+    _log.debug('widget.visibility',
+        enabled ? 'ticker enabled' : 'ticker disabled (e.g. inactive TabBarView)',
+        fields: {'source': widget.sourceLabel});
+    if (!enabled) {
+      _scheduleHide(immediate: true);
+    } else {
+      _scheduleShow();
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant AnimSvgView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
@@ -252,8 +357,72 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
+    _showTimer?.cancel();
     widget.controller?.detachInternal(this);
     super.dispose();
+  }
+
+  void _onVisibilityChanged(VisibilityInfo info) {
+    if (!widget.disposeWhenInvisible) return;
+    final visible = info.visibleFraction > 0 && _tickerEnabled;
+    _log.debug('widget.visibility', visible ? 'visible' : 'invisible',
+        fields: {
+          'source': widget.sourceLabel,
+          'fraction': info.visibleFraction,
+          'render_enabled': _renderEnabled,
+        });
+    if (visible) {
+      _scheduleShow();
+    } else {
+      _scheduleHide();
+    }
+  }
+
+  void _scheduleHide({bool immediate = false}) {
+    _showTimer?.cancel();
+    _showTimer = null;
+    if (!_renderEnabled && _hideTimer == null) return; // already hidden
+    _hideTimer?.cancel();
+    final delay = immediate ? Duration.zero : widget.disposeDelay;
+    _log.debug('widget.visibility', 'hide scheduled', fields: {
+      'source': widget.sourceLabel,
+      'delay_ms': delay.inMilliseconds,
+    });
+    _hideTimer = Timer(delay, () {
+      _hideTimer = null;
+      if (!mounted) return;
+      if (_renderEnabled) {
+        _log.info('widget.visibility', 'hide fired → dispose native handle',
+            fields: {'source': widget.sourceLabel});
+        setState(() {
+          _renderEnabled = false;
+          // The inner Lottie unmount will dispose the controller; clear
+          // our reference so external play()/pause() calls don't target it.
+          _engine = null;
+        });
+      }
+    });
+  }
+
+  void _scheduleShow() {
+    _hideTimer?.cancel();
+    _hideTimer = null;
+    if (_renderEnabled && _showTimer == null) return; // already shown
+    _showTimer?.cancel();
+    _log.debug('widget.visibility', 'show scheduled', fields: {
+      'source': widget.sourceLabel,
+      'delay_ms': widget.showDelay.inMilliseconds,
+    });
+    _showTimer = Timer(widget.showDelay, () {
+      _showTimer = null;
+      if (!mounted) return;
+      if (!_renderEnabled) {
+        _log.info('widget.visibility', 'show fired → re-mount native handle',
+            fields: {'source': widget.sourceLabel});
+        setState(() => _renderEnabled = true);
+      }
+    });
   }
 
   Future<_PipelineOutput> _loadAndConvert() async {
@@ -363,7 +532,7 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<_PipelineOutput>(
+    final inner = FutureBuilder<_PipelineOutput>(
       future: _lottieBytesFuture,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -384,25 +553,43 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
           child: SizedBox(
             width: widget.width,
             height: widget.height,
-            child: FittedBox(
-              fit: widget.fit,
-              alignment: widget.alignment,
-              child: tvg.Lottie.memory(
-                out.bytes,
-                width: widget.width,
-                height: widget.height,
-                animate: widget.animate,
-                repeat: widget.repeat,
-                reverse: false,
-                onLoaded: (engine) {
-                  _engine = engine;
-                  _log.info('widget.engine', 'thorvg loaded');
-                },
-              ),
-            ),
+            child: _renderEnabled
+                ? FittedBox(
+                    fit: widget.fit,
+                    alignment: widget.alignment,
+                    child: tvg.Lottie.memory(
+                      out.bytes,
+                      width: widget.width,
+                      height: widget.height,
+                      animate: widget.animate,
+                      repeat: widget.repeat,
+                      reverse: false,
+                      renderScale: widget.renderScale,
+                      onLoaded: (engine) {
+                        _engine = engine;
+                        _log.info('widget.engine', 'thorvg loaded',
+                            fields: {'source': widget.sourceLabel});
+                      },
+                    ),
+                  )
+                // Off-screen placeholder. Same outer SizedBox keeps layout
+                // stable; the inner SizedBox.shrink() avoids painting
+                // anything while the native handle is torn down. We pay
+                // ~one MethodChannel `create` round-trip on re-show.
+                : const SizedBox.shrink(),
           ),
         );
       },
+    );
+    if (!widget.disposeWhenInvisible) return inner;
+    return VisibilityDetector(
+      // ObjectKey(this) is stable for the life of this State (one mount)
+      // and identity-compared, so two AnimSvgViews with the same source
+      // get distinct visibility entries inside VisibilityDetector's
+      // internal registry.
+      key: ObjectKey(this),
+      onVisibilityChanged: _onVisibilityChanged,
+      child: inner,
     );
   }
 

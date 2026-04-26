@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'thorvg_plus'
-  s.version          = '1.0.0'
+  s.version          = '1.1.0'
   s.summary          = 'Source-built fork of thorvg for Flutter with full iOS simulator support.'
   s.description      = <<-DESC
     thorvg_plus is a source-built fork of the ThorVG Flutter runtime,
@@ -26,7 +26,7 @@ Pod::Spec.new do |s|
   CMD
 
   s.source_files = [
-    'Classes/**/*.{m,h}',
+    'Classes/**/*.{m,mm,h,swift}',
     'config.h',
     'plugin_src/*.{cpp,h}',
     'thorvg_ext/inc/thorvg.h',
@@ -39,8 +39,27 @@ Pod::Spec.new do |s|
     'thorvg_ext/src/loaders/raw/*.{cpp,h}',
   ]
 
-  s.public_header_files = 'thorvg_ext/inc/thorvg.h'
+  # Only ThorvgBridge.h is public — the Swift sources in the same pod
+  # see the ObjC interface through the auto-generated umbrella header.
+  #
+  # `thorvg.h` is intentionally NOT public: it is a C++ header that
+  # `#include`s `<cstdint>` / `<functional>` / `<list>`, and CocoaPods'
+  # auto-generated umbrella is parsed in Objective-C context when Swift
+  # builds the module — the C++ standard headers fail to resolve and
+  # the build dies with `'cstdint' file not found`. The pod's own C++
+  # sources (`plugin_src/*.cpp`, `tvgFlutterLottieAnimation.cpp`) reach
+  # `thorvg.h` via the project's HEADER_SEARCH_PATHS, not via the
+  # public-headers path, so dropping it from this list breaks nothing
+  # internally.
+  s.public_header_files = [
+    'Classes/ThorvgBridge.h',
+  ]
   s.libraries = ['c++', 'z']
+
+  # Accelerate provides vImagePermuteChannels_ARGB8888 used in
+  # ThorvgBridge.mm to swizzle thorvg's ABGR8888 output into BGRA8888
+  # for the CVPixelBuffer.
+  s.frameworks = ['Accelerate']
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE'                       => 'YES',
@@ -52,6 +71,7 @@ Pod::Spec.new do |s|
     'HEADER_SEARCH_PATHS'                  => [
       '$(inherited)',
       '"${PODS_TARGET_SRCROOT}"',
+      '"${PODS_TARGET_SRCROOT}/Classes"',
       '"${PODS_TARGET_SRCROOT}/plugin_src"',
       '"${PODS_TARGET_SRCROOT}/thorvg_ext/inc"',
       '"${PODS_TARGET_SRCROOT}/thorvg_ext/src/common"',

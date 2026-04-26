@@ -8,14 +8,14 @@
   <a href="https://pub.dev/packages/anim_svg"><img src="https://img.shields.io/pub/v/anim_svg.svg" alt="pub version"></a>
   <a href="https://pub.dev/packages/anim_svg/score"><img src="https://img.shields.io/pub/likes/anim_svg" alt="pub likes"></a>
   <img src="https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg" alt="platforms">
-  <img src="https://img.shields.io/badge/flutter-%E2%89%A53.3-02569B.svg" alt="Flutter ≥3.3">
+  <img src="https://img.shields.io/badge/flutter-%E2%89%A53.24-02569B.svg" alt="Flutter ≥3.24">
   <img src="https://img.shields.io/badge/status-experimental-orange.svg" alt="experimental">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
 `anim_svg` turns an animated SVG — SMIL, CSS `@keyframes`, motion paths — into a Lottie 5.7 document at runtime and hands the result to [**thorvg**](https://www.thorvg.org/), a fast C++ vector + Lottie renderer. It's shipped to Flutter via [`package:thorvg_plus`](https://pub.dev/packages/thorvg_plus) — a source-built fork of `package:thorvg` that restores iOS simulator support (see *[Why `thorvg_plus`](#why-we-depend-on-thorvg_plus-instead-of-thorvg)* below). Conversion runs entirely inside a native Rust core (`anim_svg_core`) invoked through `dart:ffi`.
 
-> **Experimental (v0.0.2).** Public API may change between patch releases. Coverage grows with real-world input — if an SVG renders wrong, **open an issue with the file attached** and we'll add it to the fixture suite.
+> **Experimental (v0.0.4).** Public API may change between patch releases. Coverage grows with real-world input — if an SVG renders wrong, **open an issue with the file attached** and we'll add it to the fixture suite.
 
 ---
 
@@ -134,6 +134,143 @@ AnimSvgView.network(
 ```
 
 `fit` / `alignment` are accepted by **every** factory (`.asset`, `.string`, `.network`) and behave the same way as on `Image` — the rendered Lottie surface is wrapped in a `FittedBox` because thorvg itself paints at 1:1.
+
+### Parameters
+
+The same parameter set is accepted by all three factories (`.asset` / `.string` / `.network`); only the first positional arg — the source — differs. Everything else is keyword-only.
+
+#### Source (per factory)
+
+| Factory | First arg | Type | What it loads |
+| --- | --- | --- | --- |
+| `AnimSvgView.asset(path)` | `assetPath` | `String` | Bundled asset path (`'assets/foo.svg'`). Resolved via `rootBundle`. |
+| `AnimSvgView.string(svg)` | `svgXml` | `String` | Raw SVG XML already in memory. For runtime-generated or fetched-by-yourself sources. |
+| `AnimSvgView.network(url)` | `url` | `String` | HTTP(S) URL. Converted Lottie cached on disk for 7 days; replays skip both network and FFI. |
+
+#### Layout (required)
+
+| Param | Type | What it does |
+| --- | --- | --- |
+| `width` | `double` | Logical width of the widget. For portrait sources, drives lateral padding of the render buffer. |
+| `height` | `double` | Logical height. **Drives effective rasterization cost** (∝ `height²` for portrait sources) — capping `height` is the single most effective lever for fitting more animations on screen at 60 FPS. See *Performance tuning* below. |
+
+#### Layout (optional)
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `fit` | `BoxFit` | `BoxFit.contain` | How the rendered Lottie surface fits inside `width × height`. Same semantics as `Image`. |
+| `alignment` | `AlignmentGeometry` | `Alignment.center` | Where to position the surface inside its box when `fit` leaves slack. Same semantics as `Image`. |
+
+#### Playback
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `animate` | `bool` | `true` | If `false`, the engine paints frame 0 once and never advances. Useful for hero stills and golden-snapshot tests. |
+| `repeat` | `bool` | `true` | If `false`, the animation plays once and freezes on the last frame. |
+| `controller` | `AnimSvgController?` | `null` | Programmatic handle for `play()` / `pause()` / `seek(progress)`. Note: thorvg 1.0 has no native pause/seek primitives — `pause()` currently no-ops with a warning, kept as a forward-compat hook. |
+| `startDelay` | `Duration?` | `null` | Delays mounting of the thorvg engine. Use to **stagger initial `tvg.load`** calls across many list items in the same frame — a common cause of first-frame jank with 8+ visible animations. Set `index * 20.ms` in your `itemBuilder`. While pending, the widget renders its `loadingBuilder`. |
+
+#### Performance
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `renderScale` | `double` | `1.0` | Multiplier on `width` / `height` when sizing the native render buffer. `1.0` renders at logical pixels (softer on high-DPR but cheap); device DPR (2.0–3.0) is crisp but ~`scale²`× more CPU per frame. Full deep-dive: *Performance tuning: `renderScale`* below. |
+| `disposeWhenInvisible` | `bool` | `true` | Tear down the native handle once the widget is fully off-screen for `disposeDelay`, re-create after `showDelay` of returning. Full deep-dive: *Off-screen disposal* below. |
+| `disposeDelay` | `Duration` | `Duration(milliseconds: 700)` | Debounce: how long to wait after invisibility before tearing down. Lower = reclaim sooner; higher = mask flap during fast scrolls. |
+| `showDelay` | `Duration` | `Duration(milliseconds: 150)` | Symmetric debounce: how long to wait after returning to visibility before re-creating. Lower = snappier re-show; higher = avoid native creates for fleeting glances. |
+
+#### Builders (fallback UI)
+
+| Param | Type | Default | When it renders |
+| --- | --- | --- | --- |
+| `loadingBuilder` | `WidgetBuilder?` | centered `CircularProgressIndicator` | While the source is loading or converting. In practice only the `.network` path reaches this — assets resolve fast enough that the loading state usually doesn't render. |
+| `placeholderBuilder` | `WidgetBuilder?` | neutral grey "no renderable content" box | Conversion succeeded but produced zero renderable layers — e.g. an SVG made entirely of filter primitives or features we don't yet support. |
+| `errorBuilder` | `(ctx, err, stack) → Widget?` | broken-image icon | Conversion or load failed. The error and stack trace are passed in so callers can surface their own diagnostics. |
+
+#### Diagnostics
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `logger` | `AnimSvgLogger?` | `DeveloperLogger()` | Receives every pipeline event (load, convert, network, engine, visibility, hide/show), each tagged with `[anim_svg] [stage]`. Pass `PrintLogger()` for raw stdout, or your own implementation for telemetry — see *Debugging* below. |
+| `onLottieReady` | `(Uint8List) → void?` | `null` | Called once the converter produces Lottie JSON bytes. Paste the bytes into [lottiefiles.com/preview](https://lottiefiles.com/preview) to isolate render bugs from conversion bugs. |
+
+#### `.network`-only
+
+| Param | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `cacheManager` | `BaseCacheManager?` | `LottieCacheManager.instance` | Override the default cache (TTL, capacity, location). See *Networking & caching* below. |
+| `loader` | `NetworkSvgLoader?` | injected default | Inject a custom HTTP loader. Useful for tests, mocks, or non-`http` transports. |
+
+### Performance tuning: `renderScale`
+
+The thorvg renderer is software-only (CPU SwCanvas), so rasterization cost scales with the rendered pixel count. Every factory accepts an optional `renderScale` (default `1.0`) — a multiplier applied to logical `width` / `height` when sizing the native render buffer.
+
+```dart
+AnimSvgView.network(
+  url,
+  width: 300,
+  height: 300,
+  renderScale: 1.0, // default: render at logical pixels — cheapest
+);
+
+AnimSvgView.network(
+  url,
+  width: 300,
+  height: 300,
+  renderScale: 2.0, // crisper on retina, ~4× more rasterization cost
+);
+```
+
+| `renderScale` | When to use |
+| --- | --- |
+| `1.0` (default) | Many simultaneous animations, scrollable lists, low-end Android. Output is upscaled by Flutter's compositor; expect visible softness on high-DPR screens. |
+| `1.5` – `2.0` | Hero animations, single visible item, high-DPR target. Costs ~2.25–4× more CPU per frame than the default. |
+| device DPR (≈ 2.5–3.0) | Crispest output. Only feasible for one or two simultaneous animations on modern hardware. |
+
+The native render path runs on a single shared producer thread (Android `HandlerThread`, iOS `DispatchQueue`) so the Flutter UI isolate is never blocked, but lifting `renderScale` past what the producer thread can sustain causes dropped frames in the Texture compositor — animations stutter visually even though the UI thread stays at 60 FPS. When in doubt, profile.
+
+#### How `width` and `height` actually affect cost
+
+Worth knowing for portrait-source SVGs (most slot-machine and mobile-app art): thorvg scales the source by `height / source_height`, leaving lateral padding on either side when `width` is wider than `source_width × scale`. **`height` therefore drives effectively all rasterization cost (∝ `height²` for square widget bounds); changing `width` only resizes the side padding** of the buffer.
+
+This means:
+- Match `width` to `(source_aspect × height)` to avoid wasted padding.
+- Capping `height` is the single most effective lever when you need to fit more animations on screen at 60 FPS.
+
+### Off-screen disposal
+
+Each mounted `AnimSvgView` holds a thorvg scene tree, an RGBA frame buffer (`renderScale² × W × H × 4` bytes — ≈720 KB for a 300×300 tile at `renderScale: 2.0`), and a platform texture surface. Inside long lists this adds up quickly.
+
+By default `AnimSvgView` watches its own viewport visibility and tears down the native handle once the widget has been fully off-screen for `disposeDelay`, then re-creates it after `showDelay` of returning to visibility — symmetric debounce that keeps fast scrolls from churning native resources.
+
+```dart
+AnimSvgView.network(
+  url,
+  width: 300,
+  height: 300,
+  // Defaults shown here for clarity; you can omit them.
+  disposeWhenInvisible: true,
+  disposeDelay: const Duration(milliseconds: 700),
+  showDelay: const Duration(milliseconds: 150),
+);
+```
+
+On Android the texture lifecycle is driven by `TextureRegistry.createSurfaceProducer` (since `thorvg_plus 1.1.0`). On API 28+ this is backed by `ImageReader` / `HardwareBuffer`, so create/destroy cycles stay cheap even under sustained fast-scroll workloads. On API < 28 the engine transparently falls back to `SurfaceTexture` — fine for typical use, but very long fast-scroll sessions on those older devices can in principle hit the legacy `BufferQueue` fence-FD pressure documented in [flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916). If you observe FD growth in `/proc/<pid>/fd` during long scrolls on those targets, opt out via `disposeWhenInvisible: false`.
+
+Tuning:
+
+| Knob | When to change |
+| --- | --- |
+| `disposeWhenInvisible: false` | Keep the native handle alive while the widget stays mounted. Useful for tests, golden snapshots, tightly-scoped lists where every item is on-screen at rest, or as a safety opt-out on Android API < 28 (see above). |
+| `disposeDelay` (lower, e.g. 200 ms) | Memory-constrained device or very long lists — reclaim sooner at the cost of more re-create churn during scrolling. |
+| `disposeDelay` (higher, e.g. 1500 ms) | User scrolls the list back and forth a lot; mask the small re-mount cost behind a longer grace window. |
+| `showDelay` (lower, e.g. 0 ms) | Fewer than ~10 simultaneous animations and you want the snappiest re-show; you accept paying one MethodChannel round-trip per fleeting scroll glance. |
+
+Limitations:
+
+- Visibility is detected geometrically against the viewport. **Items obscured by a `Stack` overlay in the same layer tree are NOT considered invisible** — the overlay covers them on screen but they're still painted underneath. If your UI flips between full-screen pages with a `Stack`, wrap the underlay branch in `Offstage` or `Visibility(visible: false)` at the call site to take it out of the tree entirely; that triggers our normal unmount path.
+- `TabBarView` inactive tabs *are* handled — we treat `TickerMode.of(context) == false` the same as zero visibility.
+- Re-showing pays roughly one MethodChannel `create` round-trip plus thorvg's per-instance native init. The Lottie JSON bytes are reused from the outer State, so no re-conversion happens.
 
 ### Direct conversion (no widget)
 
