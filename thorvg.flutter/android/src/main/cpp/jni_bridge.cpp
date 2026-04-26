@@ -23,6 +23,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <mutex>
+#include <unordered_map>
 
 #include "tvgFlutterLottieAnimation.h"
 
@@ -40,6 +41,27 @@ static std::mutex& engineInitMutex() {
     return m;
 }
 
+// Per-handle ANativeWindow cache.
+//
+// Calling `ANativeWindow_fromSurface` + `ANativeWindow_release` every frame
+// causes a binder transaction that occasionally retains a fence file
+// descriptor in `BnTransactionCompletedListener` parcels. After ~minutes of
+// 60 Hz scrolling with many textures this exhausts the per-process fd
+// budget — `fcntl(F_DUPFD_CLOEXEC) failed, error: Too many open files` —
+// and Flutter's raster thread aborts inside `SurfaceTexture.updateTexImage`.
+//
+// We acquire the window once per texture (via `nativeAttachSurface`) and
+// reuse it across frames. The map is keyed by the same `jlong` we hand back
+// to Kotlin from `nativeCreate`, so each ThorvgTexture owns exactly one
+// cached `ANativeWindow*` for its lifetime.
+static std::mutex g_windowsMutex;
+static std::unordered_map<jlong, ANativeWindow*> g_windows;
+
+static ANativeWindow* lookupWindowLocked(jlong handle) {
+    auto it = g_windows.find(handle);
+    return it == g_windows.end() ? nullptr : it->second;
+}
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL
@@ -53,8 +75,48 @@ JNIEXPORT void JNICALL
 Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeDestroy(
         JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     if (!handle) return;
+    // Release any cached ANativeWindow for this handle before destroying the
+    // thorvg side. After this point no more nativeRenderFrame calls can
+    // succeed for this handle.
+    {
+        std::lock_guard<std::mutex> lk(g_windowsMutex);
+        if (auto* w = lookupWindowLocked(handle)) {
+            ANativeWindow_release(w);
+            g_windows.erase(handle);
+        }
+    }
     std::lock_guard<std::mutex> lk(engineInitMutex());
     destroy(reinterpret_cast<FlutterLottieAnimation*>(handle));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeAttachSurface(
+        JNIEnv* env, jobject /*thiz*/, jlong handle, jobject jsurface) {
+    if (!handle || !jsurface) return JNI_FALSE;
+    ANativeWindow* window = ANativeWindow_fromSurface(env, jsurface);
+    if (!window) {
+        LOGE("ANativeWindow_fromSurface failed in attach");
+        return JNI_FALSE;
+    }
+    std::lock_guard<std::mutex> lk(g_windowsMutex);
+    // Defensive: replace any stale cached window. In normal use each handle
+    // attaches exactly once, but a swap should still keep refcounts honest.
+    if (auto* prev = lookupWindowLocked(handle)) {
+        ANativeWindow_release(prev);
+    }
+    g_windows[handle] = window;
+    return JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeDetachSurface(
+        JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    if (!handle) return;
+    std::lock_guard<std::mutex> lk(g_windowsMutex);
+    if (auto* w = lookupWindowLocked(handle)) {
+        ANativeWindow_release(w);
+        g_windows.erase(handle);
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -124,11 +186,24 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeError(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeRenderToSurface(
-        JNIEnv* env, jobject /*thiz*/,
-        jlong handle, jfloat frameNo, jint w, jint h, jobject jsurface) {
-    if (!handle || !jsurface) return JNI_FALSE;
+Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeRenderFrame(
+        JNIEnv* /*env*/, jobject /*thiz*/,
+        jlong handle, jfloat frameNo, jint w, jint h) {
+    if (!handle) return JNI_FALSE;
     auto* anim = reinterpret_cast<FlutterLottieAnimation*>(handle);
+
+    // Pull the cached ANativeWindow under the mutex; only the producer side
+    // (this thread) holds a reference between attach and detach, so we
+    // don't need to extra-ref the pointer for the call itself.
+    ANativeWindow* window;
+    {
+        std::lock_guard<std::mutex> lk(g_windowsMutex);
+        window = lookupWindowLocked(handle);
+    }
+    if (!window) {
+        LOGE("nativeRenderFrame called with no attached surface");
+        return JNI_FALSE;
+    }
 
     frame(anim, frameNo);
     if (!update(anim)) {
@@ -141,24 +216,16 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeRenderToSurface(
         return JNI_FALSE;
     }
 
-    ANativeWindow* window = ANativeWindow_fromSurface(env, jsurface);
-    if (!window) {
-        LOGE("ANativeWindow_fromSurface failed");
-        return JNI_FALSE;
-    }
-
     // No-op when geometry is unchanged, so cheap to call per frame.
     if (ANativeWindow_setBuffersGeometry(window, w, h,
                                          WINDOW_FORMAT_RGBA_8888) != 0) {
         LOGE("setBuffersGeometry(%d,%d) failed", w, h);
-        ANativeWindow_release(window);
         return JNI_FALSE;
     }
 
     ANativeWindow_Buffer buf;
     if (ANativeWindow_lock(window, &buf, nullptr) < 0) {
         LOGE("ANativeWindow_lock failed");
-        ANativeWindow_release(window);
         return JNI_FALSE;
     }
 
@@ -178,7 +245,6 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeRenderToSurface(
     }
 
     ANativeWindow_unlockAndPost(window);
-    ANativeWindow_release(window);
     return JNI_TRUE;
 }
 

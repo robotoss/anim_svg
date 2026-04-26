@@ -126,6 +126,9 @@ internal class ThorvgTexture private constructor(
         handler.post {
             handler.removeCallbacks(tickRunnable)
             if (nativeHandle != 0L) {
+                // Releases the cached ANativeWindow and tears down the
+                // thorvg side. After this point no more frames can be
+                // produced for this handle.
                 nativeDestroy(nativeHandle)
                 nativeHandle = 0L
             }
@@ -150,6 +153,17 @@ internal class ThorvgTexture private constructor(
             nativeDestroy(nativeHandle)
             nativeHandle = 0L
             throw IllegalStateException("Lottie load failed: $err")
+        }
+        // Cache an ANativeWindow ref for this Surface once, here, instead of
+        // grabbing one per frame. Per-frame ANativeWindow_fromSurface causes
+        // binder transactions that occasionally retain fence file
+        // descriptors and exhausts the per-process fd budget after a few
+        // minutes of 60 Hz scrolling. See jni_bridge.cpp's `g_windows`
+        // comment for the full incident.
+        if (!nativeAttachSurface(nativeHandle, surface)) {
+            nativeDestroy(nativeHandle)
+            nativeHandle = 0L
+            throw IllegalStateException("nativeAttachSurface failed")
         }
         totalFrame = nativeTotalFrame(nativeHandle)
         duration = nativeDuration(nativeHandle)
@@ -219,7 +233,7 @@ internal class ThorvgTexture private constructor(
         if (disposed || nativeHandle == 0L) return
         val rounded = if (totalFrame >= 1f) Math.round(frame).toFloat() else frame
         if (!force && rounded == lastFrameRendered) return
-        nativeRenderToSurface(nativeHandle, rounded, renderWidth, renderHeight, surface)
+        nativeRenderFrame(nativeHandle, rounded, renderWidth, renderHeight)
         lastFrameRendered = rounded
     }
 
@@ -236,12 +250,13 @@ internal class ThorvgTexture private constructor(
     private external fun nativeResize(handle: Long, w: Int, h: Int)
     private external fun nativeFrame(handle: Long, no: Float): Boolean
     private external fun nativeError(handle: Long): String
-    private external fun nativeRenderToSurface(
+    private external fun nativeAttachSurface(handle: Long, surface: Surface): Boolean
+    private external fun nativeDetachSurface(handle: Long)
+    private external fun nativeRenderFrame(
         handle: Long,
         frameNo: Float,
         w: Int,
         h: Int,
-        surface: Surface,
     ): Boolean
 
     companion object {
