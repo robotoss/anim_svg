@@ -135,6 +135,42 @@ AnimSvgView.network(
 
 `fit` / `alignment` are accepted by **every** factory (`.asset`, `.string`, `.network`) and behave the same way as on `Image` — the rendered Lottie surface is wrapped in a `FittedBox` because thorvg itself paints at 1:1.
 
+### Performance tuning: `renderScale`
+
+The thorvg renderer is software-only (CPU SwCanvas), so rasterization cost scales with the rendered pixel count. Every factory accepts an optional `renderScale` (default `1.0`) — a multiplier applied to logical `width` / `height` when sizing the native render buffer.
+
+```dart
+AnimSvgView.network(
+  url,
+  width: 300,
+  height: 300,
+  renderScale: 1.0, // default: render at logical pixels — cheapest
+);
+
+AnimSvgView.network(
+  url,
+  width: 300,
+  height: 300,
+  renderScale: 2.0, // crisper on retina, ~4× more rasterization cost
+);
+```
+
+| `renderScale` | When to use |
+| --- | --- |
+| `1.0` (default) | Many simultaneous animations, scrollable lists, low-end Android. Output is upscaled by Flutter's compositor; expect visible softness on high-DPR screens. |
+| `1.5` – `2.0` | Hero animations, single visible item, high-DPR target. Costs ~2.25–4× more CPU per frame than the default. |
+| device DPR (≈ 2.5–3.0) | Crispest output. Only feasible for one or two simultaneous animations on modern hardware. |
+
+The native render path runs on a single shared producer thread (Android `HandlerThread`, iOS `DispatchQueue`) so the Flutter UI isolate is never blocked, but lifting `renderScale` past what the producer thread can sustain causes dropped frames in the Texture compositor — animations stutter visually even though the UI thread stays at 60 FPS. When in doubt, profile.
+
+#### How `width` and `height` actually affect cost
+
+Worth knowing for portrait-source SVGs (most slot-machine and mobile-app art): thorvg scales the source by `height / source_height`, leaving lateral padding on either side when `width` is wider than `source_width × scale`. **`height` therefore drives effectively all rasterization cost (∝ `height²` for square widget bounds); changing `width` only resizes the side padding** of the buffer.
+
+This means:
+- Match `width` to `(source_aspect × height)` to avoid wasted padding.
+- Capping `height` is the single most effective lever when you need to fit more animations on screen at 60 FPS.
+
 ### Direct conversion (no widget)
 
 ```dart

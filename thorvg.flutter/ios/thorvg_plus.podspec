@@ -26,7 +26,7 @@ Pod::Spec.new do |s|
   CMD
 
   s.source_files = [
-    'Classes/**/*.{m,h}',
+    'Classes/**/*.{m,mm,h,swift}',
     'config.h',
     'plugin_src/*.{cpp,h}',
     'thorvg_ext/inc/thorvg.h',
@@ -39,8 +39,18 @@ Pod::Spec.new do |s|
     'thorvg_ext/src/loaders/raw/*.{cpp,h}',
   ]
 
-  s.public_header_files = 'thorvg_ext/inc/thorvg.h'
+  # ThorvgBridge.h must be public so the Swift sources in the same pod can
+  # see the ObjC interface through the auto-generated umbrella header.
+  s.public_header_files = [
+    'thorvg_ext/inc/thorvg.h',
+    'Classes/ThorvgBridge.h',
+  ]
   s.libraries = ['c++', 'z']
+
+  # Accelerate provides vImagePermuteChannels_ARGB8888 used in
+  # ThorvgBridge.mm to swizzle thorvg's ABGR8888 output into BGRA8888
+  # for the CVPixelBuffer.
+  s.frameworks = ['Accelerate']
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE'                       => 'YES',
@@ -52,6 +62,7 @@ Pod::Spec.new do |s|
     'HEADER_SEARCH_PATHS'                  => [
       '$(inherited)',
       '"${PODS_TARGET_SRCROOT}"',
+      '"${PODS_TARGET_SRCROOT}/Classes"',
       '"${PODS_TARGET_SRCROOT}/plugin_src"',
       '"${PODS_TARGET_SRCROOT}/thorvg_ext/inc"',
       '"${PODS_TARGET_SRCROOT}/thorvg_ext/src/common"',

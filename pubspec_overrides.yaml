@@ -1,0 +1,7 @@
+# Override thorvg_plus to use the local vendored fork at thorvg.flutter/.
+# Required for `flutter analyze` and `flutter test` to see in-progress
+# changes to the plugin (the example app already has this in its own
+# pubspec.yaml).
+dependency_overrides:
+  thorvg_plus:
+    path: ./thorvg.flutter

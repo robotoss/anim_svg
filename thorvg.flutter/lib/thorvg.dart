@@ -21,3 +21,4 @@
  */
 
 export 'src/lottie.dart' show Lottie;
+export 'src/thorvg_controller.dart' show ThorvgController;

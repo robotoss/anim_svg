@@ -48,6 +48,7 @@ class AnimSvgView extends StatefulWidget {
     this.logger,
     this.onLottieReady,
     this.startDelay,
+    this.renderScale = 1.0,
   }) : assert(svgLoader != null || lottieBytesLoader != null,
             'Exactly one of svgLoader or lottieBytesLoader must be provided');
 
@@ -67,6 +68,7 @@ class AnimSvgView extends StatefulWidget {
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
     Duration? startDelay,
+    double renderScale = 1.0,
   }) {
     return AnimSvgView._(
       key: key,
@@ -85,6 +87,7 @@ class AnimSvgView extends StatefulWidget {
       logger: logger,
       onLottieReady: onLottieReady,
       startDelay: startDelay,
+      renderScale: renderScale,
     );
   }
 
@@ -104,6 +107,7 @@ class AnimSvgView extends StatefulWidget {
     AnimSvgLogger? logger,
     void Function(Uint8List lottieBytes)? onLottieReady,
     Duration? startDelay,
+    double renderScale = 1.0,
   }) {
     return AnimSvgView._(
       key: key,
@@ -122,6 +126,7 @@ class AnimSvgView extends StatefulWidget {
       logger: logger,
       onLottieReady: onLottieReady,
       startDelay: startDelay,
+      renderScale: renderScale,
     );
   }
 
@@ -149,6 +154,7 @@ class AnimSvgView extends StatefulWidget {
     BaseCacheManager? cacheManager,
     NetworkSvgLoader? loader,
     Duration? startDelay,
+    double renderScale = 1.0,
   }) {
     final effectiveLoader = loader ??
         NetworkSvgLoader(
@@ -172,6 +178,7 @@ class AnimSvgView extends StatefulWidget {
       logger: logger,
       onLottieReady: onLottieReady,
       startDelay: startDelay,
+      renderScale: renderScale,
     );
   }
 
@@ -205,6 +212,17 @@ class AnimSvgView extends StatefulWidget {
   /// synchronous `SwCanvas` setups don't collide in a single frame.
   /// While the delay is pending the widget renders its loadingBuilder.
   final Duration? startDelay;
+
+  /// Multiplier applied to logical [width] / [height] when sizing the
+  /// native render buffer. `1.0` (default) renders at logical pixels —
+  /// cheapest at the cost of softness on high-DPR displays. Bump to the
+  /// device DPR (e.g. 2.0–3.0) for crisper output, at roughly
+  /// `renderScale²` more rasterization cost.
+  ///
+  /// thorvg uses a CPU SwCanvas; for many simultaneous animations the
+  /// shared render thread can't keep up at full DPR, which is why the
+  /// default is `1.0`.
+  final double renderScale;
 
   @override
   State<AnimSvgView> createState() => _AnimSvgViewState();
@@ -394,6 +412,7 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
                 animate: widget.animate,
                 repeat: widget.repeat,
                 reverse: false,
+                renderScale: widget.renderScale,
                 onLoaded: (engine) {
                   _engine = engine;
                   _log.info('widget.engine', 'thorvg loaded');

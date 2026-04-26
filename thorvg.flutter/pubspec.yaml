@@ -32,5 +32,8 @@ flutter:
     platforms:
       android:
         ffiPlugin: true
+        package: com.robotoss.thorvg_plus
+        pluginClass: ThorvgPlusPlugin
       ios:
         ffiPlugin: true
+        pluginClass: ThorvgPlusPlugin

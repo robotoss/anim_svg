@@ -2,32 +2,26 @@ PODS:
   - anim_svg (0.0.1):
     - Flutter
   - Flutter (1.0.0)
-  - integration_test (0.0.1):
-    - Flutter
-  - thorvg (1.0.0-src):
+  - thorvg_plus (1.0.0):
     - Flutter
 
 DEPENDENCIES:
   - anim_svg (from `.symlinks/plugins/anim_svg/ios`)
   - Flutter (from `Flutter`)
-  - integration_test (from `.symlinks/plugins/integration_test/ios`)
-  - thorvg (from `.symlinks/plugins/thorvg/ios`)
+  - thorvg_plus (from `.symlinks/plugins/thorvg_plus/ios`)
 
 EXTERNAL SOURCES:
   anim_svg:
     :path: ".symlinks/plugins/anim_svg/ios"
   Flutter:
     :path: Flutter
-  integration_test:
-    :path: ".symlinks/plugins/integration_test/ios"
-  thorvg:
-    :path: ".symlinks/plugins/thorvg/ios"
+  thorvg_plus:
+    :path: ".symlinks/plugins/thorvg_plus/ios"
 
 SPEC CHECKSUMS:
-  anim_svg: 0d75f49ace779ca263e50e8c705f823ef574d095
+  anim_svg: 8b42649fcd0516d4c0de8e2056dbee3609ceef07
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  thorvg: a8b58d5744af4cbfce62a702b69799fe4671ac3d
+  thorvg_plus: 5b9338a0bcd3ae2d863a524364dc9bebc2aca695
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
 

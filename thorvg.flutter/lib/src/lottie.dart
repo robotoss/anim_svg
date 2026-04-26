@@ -1,56 +1,69 @@
 /*
  * Copyright (c) 2024 - 2026 ThorVG project. All rights reserved.
-
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
-
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ *
+ * Licensed under the MIT License (see project LICENSE for details).
  */
 
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'dart:io' as io;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:thorvg_plus/src/thorvg.dart' as module;
-import 'package:thorvg_plus/src/utils.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
+import 'thorvg_controller.dart';
+import 'utils.dart';
+
+/// A Lottie/JSON animation rendered by the native thorvg engine into a
+/// Flutter `Texture(textureId)`.
+///
+/// Rasterization runs on a per-instance native thread (`HandlerThread` on
+/// Android, `DispatchQueue` on iOS) so the Flutter UI isolate is never
+/// blocked by `SwCanvas::draw`. The widget's `build` cost is the cost of a
+/// `Texture` widget — effectively a sampler — independent of how many
+/// animations are on screen.
 class Lottie extends StatefulWidget {
-  final Future<String> data;
-  final double width;
-  final double height;
-
-  final bool animate;
-  final bool repeat;
-  final bool reverse;
-
-  final void Function(module.Thorvg)? onLoaded;
-
   const Lottie({
-    Key? key,
+    super.key,
     required this.data,
     required this.width,
     required this.height,
     required this.animate,
     required this.repeat,
     required this.reverse,
+    this.renderScale = 1.0,
     this.onLoaded,
-  }) : super(key: key);
+  });
+
+  final Future<String> data;
+  final double width;
+  final double height;
+  final bool animate;
+  final bool repeat;
+  final bool reverse;
+
+  /// Multiplier applied to the logical widget size when sizing the native
+  /// rasterization buffer. The thorvg SwCanvas runs on the CPU, so cost
+  /// scales with rendered pixel count.
+  ///
+  /// - `1.0` (default) — render at logical pixels. Cheapest; output will
+  ///   look slightly soft on high-DPR (retina) screens because Flutter
+  ///   then upscales the texture to the physical buffer.
+  /// - device DPR (e.g. 2.5–3.0) — crispest, but rasterization cost is
+  ///   ~`renderScale²` higher. With many simultaneous animations this can
+  ///   exceed the shared render thread's frame budget.
+  ///
+  /// The default was lowered from `1 + (dpr - 1) * 0.75` after profiling
+  /// 8 portrait slot animations on a high-DPR emulator: at the previous
+  /// formula the render thread could not produce frames fast enough,
+  /// causing visible stutter even though the UI thread was idle.
+  final double renderScale;
+
+  /// Invoked once the native handle and texture are ready. Use the supplied
+  /// [ThorvgController] to drive `play`/`pause`/`seek`/`resize`. The
+  /// controller is owned by the widget and disposed automatically.
+  final void Function(ThorvgController controller)? onLoaded;
 
   static Lottie asset(
     String name, {
@@ -60,9 +73,10 @@ class Lottie extends StatefulWidget {
     bool? animate,
     bool? repeat,
     bool? reverse,
+    double? renderScale,
     AssetBundle? bundle,
     String? package,
-    void Function(module.Thorvg)? onLoaded,
+    void Function(ThorvgController)? onLoaded,
   }) {
     return Lottie(
       key: key,
@@ -72,6 +86,7 @@ class Lottie extends StatefulWidget {
       animate: animate ?? true,
       repeat: repeat ?? true,
       reverse: reverse ?? false,
+      renderScale: renderScale ?? 1.0,
       onLoaded: onLoaded,
     );
   }
@@ -84,7 +99,8 @@ class Lottie extends StatefulWidget {
     bool? animate,
     bool? repeat,
     bool? reverse,
-    void Function(module.Thorvg)? onLoaded,
+    double? renderScale,
+    void Function(ThorvgController)? onLoaded,
   }) {
     return Lottie(
       key: key,
@@ -94,6 +110,7 @@ class Lottie extends StatefulWidget {
       animate: animate ?? true,
       repeat: repeat ?? true,
       reverse: reverse ?? false,
+      renderScale: renderScale ?? 1.0,
       onLoaded: onLoaded,
     );
   }
@@ -106,7 +123,8 @@ class Lottie extends StatefulWidget {
     bool? animate,
     bool? repeat,
     bool? reverse,
-    void Function(module.Thorvg)? onLoaded,
+    double? renderScale,
+    void Function(ThorvgController)? onLoaded,
   }) {
     return Lottie(
       key: key,
@@ -116,291 +134,230 @@ class Lottie extends StatefulWidget {
       animate: animate ?? true,
       repeat: repeat ?? true,
       reverse: reverse ?? false,
+      renderScale: renderScale ?? 1.0,
       onLoaded: onLoaded,
     );
   }
 
-  static Lottie network(String src,
-      {Key? key,
-      double? width,
-      double? height,
-      bool? animate,
-      bool? repeat,
-      bool? reverse,
-      void Function(module.Thorvg)? onLoaded}) {
+  static Lottie network(
+    String src, {
+    Key? key,
+    double? width,
+    double? height,
+    bool? animate,
+    bool? repeat,
+    bool? reverse,
+    double? renderScale,
+    void Function(ThorvgController)? onLoaded,
+  }) {
     return Lottie(
-        key: key,
-        data: parseSrc(src),
-        width: width ?? 0,
-        height: height ?? 0,
-        animate: animate ?? true,
-        repeat: repeat ?? true,
-        reverse: reverse ?? false,
-        onLoaded: onLoaded);
+      key: key,
+      data: parseSrc(src),
+      width: width ?? 0,
+      height: height ?? 0,
+      animate: animate ?? true,
+      repeat: repeat ?? true,
+      reverse: reverse ?? false,
+      renderScale: renderScale ?? 1.0,
+      onLoaded: onLoaded,
+    );
   }
 
   @override
-  State createState() => _State();
+  State<Lottie> createState() => _LottieState();
 }
 
-class _State extends State<Lottie> {
-  module.Thorvg? tvg;
-  ui.Image? img;
-  int? _frameCallbackId;
+class _LottieState extends State<Lottie> {
+  ThorvgController? _controller;
+  Object? _error;
 
-  String data = "";
-  String errorMsg = "";
+  // Tracks the dpr applied at controller creation. If the widget rebuilds
+  // under a different dpr (e.g. window moves to another screen), we resize
+  // the native buffer.
+  double _appliedDpr = 1.0;
+  double _appliedWidth = 0;
+  double _appliedHeight = 0;
 
-  // Canvas size
-  double width = 0;
-  double height = 0;
-
-  // Original size (lottie)
-  int lottieWidth = 0;
-  int lottieHeight = 0;
-
-  // dpr
-  double dpr = 1.0;
-
-  // Render size (calculated)
-  double get renderWidth =>
-      (lottieWidth > width ? width : lottieWidth).toDouble() * dpr;
-  double get renderHeight =>
-      (lottieHeight > height ? height : lottieHeight).toDouble() * dpr;
-
-  bool _constraintChecked = false;
+  // Guard against multiple in-flight loads racing on hot reload / size changes.
+  int _loadGen = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    // The first load needs MediaQuery; defer to first build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadInitial();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant Lottie oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.width != oldWidget.width || widget.height != oldWidget.height) {
+      _maybeResize();
+    }
   }
 
   @override
   void reassemble() {
     super.reassemble();
-
-    if (tvg == null) {
-      setState(() {
-        errorMsg = "Thorvg module has not been initialized";
-      });
-      return;
-    }
-
-    setState(() {
-      errorMsg = "";
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      _unscheduleTick();
-
-      _loadData();
-      _updateLottieSize();
-      _updateCanvasSize();
-      _tvgLoad();
-
-      _scheduleTick();
+    // Hot reload: throw the controller out and re-create. Cheap on the new
+    // path since native side rebuilds in milliseconds.
+    final ctrl = _controller;
+    _controller = null;
+    ctrl?.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadInitial();
     });
   }
 
   @override
   void dispose() {
+    _controller?.dispose();
+    _controller = null;
     super.dispose();
-
-    _unscheduleTick();
-    tvg!.delete();
   }
 
-  void _updateLottieSize() {
-    final info = jsonDecode(data);
-
-    setState(() {
-      lottieWidth = info['w'] ?? widget.width;
-      lottieHeight = info['h'] ?? widget.height;
-    });
-  }
-
-  void _updateCanvasSize() {
-    if (widget.width != 0 && widget.height != 0) {
-      setState(() {
-        width = widget.width;
-        height = widget.height;
-      });
+  Future<void> _loadInitial() async {
+    final gen = ++_loadGen;
+    String dataStr;
+    try {
+      dataStr = await widget.data;
+    } catch (e) {
+      if (gen != _loadGen || !mounted) return;
+      setState(() => _error = e);
+      return;
+    }
+    if (gen != _loadGen || !mounted) return;
+    if (dataStr.isEmpty) {
+      setState(() => _error = StateError('empty Lottie data'));
       return;
     }
 
-    if (!mounted || _constraintChecked) return;
-
-    final renderBox = context.findRenderObject();
-    if (renderBox is RenderBox) {
-      setState(() {
-        _constraintChecked = true;
-        width = widget.width == 0 ? renderBox.size.width : widget.width;
-        height = widget.height == 0 ? renderBox.size.height : widget.height;
+    final size = _resolvedSize();
+    if (size == null) {
+      // Layout not finished yet — try again next frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _loadGen == gen) _loadInitial();
       });
+      return;
     }
-  }
-
-  /* TVG function wrapper
-    * Has `_tvg` prefix
-    * Should check error and update error message
-  */
-  void _tvgLoad() {
-    try {
-      tvg!.load(data, renderWidth.toInt(), renderHeight.toInt(), widget.animate,
-          widget.repeat, widget.reverse);
-    } catch (err) {
-      setState(() {
-        errorMsg = err.toString();
-      });
+    final dpr = _resolvedDpr();
+    final renderW = (size.width * dpr).round();
+    final renderH = (size.height * dpr).round();
+    if (renderW <= 0 || renderH <= 0) {
+      setState(() => _error = StateError('non-positive render size'));
+      return;
     }
-  }
 
-  void _tvgResize() {
-    tvg!.resize(renderWidth.toInt(), renderHeight.toInt());
-  }
-
-  Uint8List? _tvgAnimLoop() {
+    Uint8List bytes;
     try {
-      return tvg!.animLoop();
-    } catch (err) {
-      setState(() {
-        errorMsg = err.toString();
-      });
+      bytes = Uint8List.fromList(utf8.encode(dataStr));
+    } catch (e) {
+      if (gen != _loadGen || !mounted) return;
+      setState(() => _error = e);
+      return;
+    }
+
+    ThorvgController controller;
+    try {
+      controller = await ThorvgController.create(
+        data: bytes,
+        width: renderW,
+        height: renderH,
+        animate: widget.animate,
+        repeat: widget.repeat,
+        reverse: widget.reverse,
+      );
+    } on PlatformException catch (e) {
+      if (gen != _loadGen || !mounted) return;
+      setState(() => _error = e);
+      return;
+    } catch (e) {
+      if (gen != _loadGen || !mounted) return;
+      setState(() => _error = e);
+      return;
+    }
+
+    if (gen != _loadGen || !mounted) {
+      // Widget disposed or replaced while we were awaiting; clean up.
+      await controller.dispose();
+      return;
+    }
+    setState(() {
+      _controller = controller;
+      _appliedDpr = dpr;
+      _appliedWidth = size.width;
+      _appliedHeight = size.height;
+      _error = null;
+    });
+    widget.onLoaded?.call(controller);
+  }
+
+  Future<void> _maybeResize() async {
+    final ctrl = _controller;
+    if (ctrl == null) return;
+    final size = _resolvedSize();
+    if (size == null) return;
+    final dpr = _resolvedDpr();
+    if (size.width == _appliedWidth &&
+        size.height == _appliedHeight &&
+        dpr == _appliedDpr) {
+      return;
+    }
+    final renderW = (size.width * dpr).round();
+    final renderH = (size.height * dpr).round();
+    if (renderW <= 0 || renderH <= 0) return;
+    await ctrl.resize(renderW, renderH);
+    if (!mounted) return;
+    _appliedWidth = size.width;
+    _appliedHeight = size.height;
+    _appliedDpr = dpr;
+  }
+
+  Size? _resolvedSize() {
+    if (widget.width > 0 && widget.height > 0) {
+      return Size(widget.width, widget.height);
+    }
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      final s = box.size;
+      final w = widget.width > 0 ? widget.width : s.width;
+      final h = widget.height > 0 ? widget.height : s.height;
+      if (w > 0 && h > 0) return Size(w, h);
     }
     return null;
   }
 
-  Future _loadData() async {
-    try {
-      data = await widget.data;
-    } catch (err) {
-      setState(() {
-        errorMsg = err.toString();
-      });
-    }
-  }
-
-  void _scheduleTick() {
-    _frameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(_tick);
-  }
-
-  void _unscheduleTick() {
-    if (_frameCallbackId == null) {
-      return;
-    }
-
-    SchedulerBinding.instance.cancelFrameCallbackWithId(_frameCallbackId!);
-    _frameCallbackId = null;
-  }
-
-  void _tick(Duration timestamp) async {
-    _scheduleTick();
-
-    final buffer = _tvgAnimLoop();
-    if (buffer == null) {
-      return;
-    }
-
-    final image =
-        await decodeImage(buffer, renderWidth.toInt(), renderHeight.toInt());
-    setState(() {
-      img = image;
-    });
-  }
-
-  void _load() async {
-    await _loadData();
-    if (data.isEmpty) return;
-
-    _updateLottieSize();
-    _updateCanvasSize();
-
-    tvg ??= module.Thorvg();
-    _tvgLoad();
-
-    if (widget.onLoaded != null) {
-      widget.onLoaded!(tvg!);
-    }
-
-    _scheduleTick();
+  double _resolvedDpr() {
+    // Buffer is sized at `widget.renderScale × logical size`. We deliberately
+    // don't read MediaQuery.devicePixelRatio here: with a SwCanvas backend,
+    // letting the buffer track full DPR is the dominant cost when many
+    // animations run on the shared render thread. Callers that need a
+    // crisper image on retina screens can pass a higher `renderScale`.
+    return widget.renderScale;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (errorMsg.isNotEmpty) {
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: ErrorWidget(errorMsg),
-      );
+    if (_error != null) {
+      return _placeholder(child: ErrorWidget(_error!));
     }
-
-    if (img == null) {
-      return Container();
+    final ctrl = _controller;
+    if (ctrl == null) {
+      return _placeholder();
     }
-
-    // Apply DPR to balance rendering quality and performance
-    final deviceDpr = 1 + (MediaQuery.of(context).devicePixelRatio - 1) * 0.75;
-    if (dpr != deviceDpr) {
-      dpr = deviceDpr;
-      _tvgResize();
-    }
-
-    return Container(
-      width: width,
-      height: height,
-      clipBehavior: Clip.hardEdge,
-      decoration: const BoxDecoration(color: Colors.transparent),
-      child: Transform.scale(
-        scale: 1.0 / dpr,
-        child: CustomPaint(
-          painter: TVGCanvas(
-            width: width,
-            height: height,
-            renderWidth: renderWidth,
-            renderHeight: renderHeight,
-            image: img!,
-          ),
-        ),
+    return _placeholder(
+      child: ClipRect(
+        child: Texture(textureId: ctrl.textureId),
       ),
     );
   }
-}
 
-class TVGCanvas extends CustomPainter {
-  TVGCanvas(
-      {required this.image,
-      required this.width,
-      required this.height,
-      required this.renderWidth,
-      required this.renderHeight});
-
-  double width;
-  double height;
-
-  double renderWidth;
-  double renderHeight;
-
-  ui.Image image;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final left = (width - renderWidth) / 2;
-    final top = (height - renderHeight) / 2;
-
-    paintImage(
-      canvas: canvas,
-      rect: Rect.fromLTWH(left, top, renderWidth, renderHeight),
-      image: image,
-      fit: BoxFit.none, //NOTE: Should make it a param
-      filterQuality: FilterQuality.high, //NOTE: Should make it a param
-      alignment: Alignment.center, //NOTE: Should make it a param
-    );
-  }
-
-  @override
-  bool shouldRepaint(TVGCanvas oldDelegate) {
-    return image != oldDelegate.image;
+  Widget _placeholder({Widget? child}) {
+    final w = widget.width > 0 ? widget.width : null;
+    final h = widget.height > 0 ? widget.height : null;
+    return SizedBox(width: w, height: h, child: child);
   }
 }

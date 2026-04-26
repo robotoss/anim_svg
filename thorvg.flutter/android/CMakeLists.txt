@@ -41,6 +41,11 @@ file(GLOB PNG_SRC       "${THORVG_ROOT}/src/loaders/png/*.cpp")
 file(GLOB JPG_SRC       "${THORVG_ROOT}/src/loaders/jpg/*.cpp")
 file(GLOB RAW_SRC       "${THORVG_ROOT}/src/loaders/raw/*.cpp")
 
+# JNI bridge — exposes the existing extern "C" API to Kotlin via
+# Java_com_robotoss_thorvg_1plus_* native methods, plus a
+# Surface-aware render path that skips Bitmap/ui.Image entirely.
+file(GLOB JNI_SRC       "${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/*.cpp")
+
 add_library(thorvg SHARED
   ${PLUGIN_SRC}
   ${COMMON_SRC}
@@ -50,6 +55,21 @@ add_library(thorvg SHARED
   ${PNG_SRC}
   ${JPG_SRC}
   ${RAW_SRC}
+  ${JNI_SRC}
 )
 
-target_link_libraries(thorvg PRIVATE log)
+# Enable NEON SIMD rasterization on ARM ABIs only. arm_neon.h is unavailable
+# on x86 / x86_64 ABIs, so the macro must not be defined there or the SwRaster
+# NEON branches fail to compile.
+if(ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "armeabi-v7a")
+  target_compile_definitions(thorvg PRIVATE THORVG_NEON_VECTOR_SUPPORT=1)
+  if(ANDROID_ABI STREQUAL "armeabi-v7a")
+    # arm64 has NEON enabled by default; armv7 needs an explicit flag.
+    target_compile_options(thorvg PRIVATE -mfpu=neon)
+  endif()
+endif()
+
+# `android` provides ANativeWindow_fromSurface / lock / unlockAndPost,
+# used by jni_bridge.cpp to blit the SwCanvas buffer directly into the
+# Flutter SurfaceTexture without an intermediate Bitmap.
+target_link_libraries(thorvg PRIVATE log android)
