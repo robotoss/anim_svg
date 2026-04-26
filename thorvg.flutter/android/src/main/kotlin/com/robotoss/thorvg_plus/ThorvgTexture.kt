@@ -3,11 +3,23 @@ package com.robotoss.thorvg_plus
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.Surface
 import io.flutter.view.TextureRegistry
 
 /**
  * One Lottie animation, rendered into a Flutter `Texture(textureId)`.
+ *
+ * **SurfaceProducer (since `thorvg_plus` 1.1.0)**: this type now uses
+ * `TextureRegistry.createSurfaceProducer()` instead of the legacy
+ * `createSurfaceTexture()`. On API 28+ the engine selects an
+ * `ImageReader`/`HardwareBuffer`-backed implementation, sidestepping the
+ * `BufferQueue` fence-FD pipeline that exhausted the per-process FD budget
+ * after a few minutes of fast scrolling under the previous renderer
+ * (flutter/flutter#94916, flutter-webrtc/flutter-webrtc#1948). On API < 28
+ * the engine transparently falls back to `SurfaceTexture`, so we keep the
+ * same `ANativeWindow_lock`/`unlockAndPost` blit path either way — the
+ * difference lives entirely below our JNI bridge.
  *
  * **Threading invariant**: every call into the JNI bridge across **all**
  * textures runs on the plugin's shared render handler. thorvg is initialized
@@ -17,12 +29,21 @@ import io.flutter.view.TextureRegistry
  * per-texture `HandlerThread` design crashed inside `canvas->update()` when
  * 8 animations loaded in parallel and raced on this state.
  *
+ * **Surface lifecycle**: with `SurfaceProducer` the engine may destroy and
+ * later recreate the underlying `Surface` independently of our widget's
+ * mount lifetime — most commonly when the app moves to background and then
+ * resumes. We bridge those events through [SurfaceProducer.Callback] onto
+ * the render handler: the cached `ANativeWindow*` is detached on
+ * `onSurfaceDestroyed` and re-attached against the fresh surface on
+ * `onSurfaceCreated`, with the last-rendered frame replayed so the user
+ * doesn't see a black flash on resume.
+ *
  * Single shared thread costs us core-level parallelism, but the primary
  * goal — keeping the Flutter UI isolate idle during scroll — is preserved
  * either way.
  */
 internal class ThorvgTexture private constructor(
-    private val entry: TextureRegistry.SurfaceTextureEntry,
+    private val producer: TextureRegistry.SurfaceProducer,
     private val handler: Handler,
     private val initialData: ByteArray,
     private var renderWidth: Int,
@@ -33,7 +54,7 @@ internal class ThorvgTexture private constructor(
     private val speed: Double,
 ) {
 
-    val id: Long = entry.id()
+    val id: Long = producer.id()
 
     var totalFrame: Float = 0f
         private set
@@ -43,8 +64,6 @@ internal class ThorvgTexture private constructor(
         private set
     var lottieHeight: Int = 0
         private set
-
-    private val surface: Surface
 
     /** Native pointer; 0 before init or after destroy. Touched only from [handler]. */
     private var nativeHandle: Long = 0L
@@ -58,9 +77,66 @@ internal class ThorvgTexture private constructor(
     private var lastFrameRendered: Float = Float.NaN
     private var nextRunTime: Long = 0L
 
-    init {
-        entry.surfaceTexture().setDefaultBufferSize(renderWidth, renderHeight)
-        surface = Surface(entry.surfaceTexture())
+    /**
+     * Tracks whether the JNI side currently holds an `ANativeWindow*` for
+     * this handle. Touched only from [handler]. Goes false on
+     * `onSurfaceDestroyed` and back to true after a successful re-attach.
+     */
+    private var surfaceAttached: Boolean = false
+
+    /**
+     * Bridges the platform-thread [SurfaceProducer.Callback] onto our
+     * render handler so that all JNI work stays on the single thorvg
+     * thread.
+     *
+     * We override the pre-3.27 method names (`onSurfaceCreated`,
+     * `onSurfaceDestroyed`) so a single override path works across
+     * Flutter 3.24..current: in 3.24-3.26 the framework calls these
+     * methods directly; in 3.27+ the framework calls the new
+     * `onSurfaceAvailable` / `onSurfaceCleanup`, whose default impls
+     * delegate to the deprecated names. When this package eventually
+     * raises its min Flutter past the deprecation removal window, swap
+     * to the new names and drop the suppression.
+     */
+    private val producerCallback = object : TextureRegistry.SurfaceProducer.Callback {
+        @Suppress("OVERRIDE_DEPRECATION")
+        override fun onSurfaceCreated() {
+            if (disposed) return
+            handler.post {
+                if (disposed || !initialized) return@post
+                val newSurface = producer.surface
+                if (newSurface == null) {
+                    Log.w(
+                        TAG,
+                        "onSurfaceCreated fired but producer.surface is null; skipping reattach",
+                    )
+                    return@post
+                }
+                if (!nativeAttachSurface(nativeHandle, newSurface)) {
+                    Log.e(TAG, "nativeAttachSurface failed during onSurfaceCreated reattach")
+                    return@post
+                }
+                surfaceAttached = true
+                // Replay the last frame so the user doesn't see a black
+                // tile until the next tick fires (especially relevant on
+                // background -> foreground when the ticker may be paused
+                // and the next animate is hundreds of ms away).
+                val resumeFrame = if (lastFrameRendered.isNaN()) 0f else lastFrameRendered
+                renderFrame(resumeFrame, force = true)
+            }
+        }
+
+        @Suppress("OVERRIDE_DEPRECATION")
+        override fun onSurfaceDestroyed() {
+            if (disposed) return
+            handler.post {
+                if (disposed || !initialized) return@post
+                if (surfaceAttached && nativeHandle != 0L) {
+                    nativeDetachSurface(nativeHandle)
+                    surfaceAttached = false
+                }
+            }
+        }
     }
 
     fun play() {
@@ -96,7 +172,12 @@ internal class ThorvgTexture private constructor(
             if (w == renderWidth && h == renderHeight) return@post
             renderWidth = w
             renderHeight = h
-            entry.surfaceTexture().setDefaultBufferSize(w, h)
+            // SurfaceProducer.setSize is the modern equivalent of
+            // SurfaceTexture.setDefaultBufferSize. The engine forwards
+            // the call to the underlying surface implementation
+            // (ImageReader on API 28+, SurfaceTexture below), so we
+            // don't need to know which path is active.
+            producer.setSize(w, h)
             nativeResize(nativeHandle, w, h)
             val resumeFrame = if (lastFrameRendered.isNaN()) 0f else lastFrameRendered
             renderFrame(resumeFrame, force = true)
@@ -108,21 +189,21 @@ internal class ThorvgTexture private constructor(
         disposed = true
         // Two-phase teardown to avoid racing with Flutter's raster thread.
         //
-        // Phase 1 (render thread): stop scheduling new frames and tear down
-        // the native handle. After this returns, no more
-        // ANativeWindow_unlockAndPost calls will be made on the Surface, so
-        // any frames still in flight on the consumer side can drain
-        // cleanly.
+        // Phase 1 (render thread): stop scheduling new frames, detach the
+        // cached ANativeWindow, and tear down the native handle. After
+        // this returns, no more ANativeWindow_unlockAndPost calls will be
+        // made on the surface, so any frames still in flight on the
+        // consumer side can drain cleanly.
         //
-        // Phase 2 (main thread): release the Surface and the
-        // SurfaceTextureEntry. `FlutterTextureRegistry.SurfaceTextureEntry`
-        // is documented to be torn down on the platform (main) thread —
-        // calling it from a HandlerThread leaks fence file descriptors and
-        // eventually crashes the raster thread inside
-        // `SurfaceTexture.updateTexImage` with "error dup'ing native fence
-        // fd". Posting back to the main looper makes the cleanup a regular
-        // platform-thread message, ordered after any in-flight texture
-        // delivery.
+        // Phase 2 (main thread): release the SurfaceProducer. The
+        // producer is documented to be torn down on the platform (main)
+        // thread — calling it from the render handler thread leaks fence
+        // file descriptors and (under the legacy SurfaceTexture path)
+        // eventually crashed the raster thread inside
+        // `SurfaceTexture.updateTexImage` with "error dup'ing native
+        // fence fd". Posting back to the main looper makes the cleanup
+        // a regular platform-thread message, ordered after any in-
+        // flight texture delivery.
         handler.post {
             handler.removeCallbacks(tickRunnable)
             if (nativeHandle != 0L) {
@@ -132,9 +213,12 @@ internal class ThorvgTexture private constructor(
                 nativeDestroy(nativeHandle)
                 nativeHandle = 0L
             }
+            surfaceAttached = false
             Handler(Looper.getMainLooper()).post {
-                try { surface.release() } catch (_: Throwable) {}
-                try { entry.release() } catch (_: Throwable) {}
+                // SurfaceProducer.release() releases the surface it owns
+                // — we do NOT hold a separate Surface reference to free
+                // (unlike the old SurfaceTextureEntry path).
+                try { producer.release() } catch (_: Throwable) {}
             }
         }
     }
@@ -154,17 +238,24 @@ internal class ThorvgTexture private constructor(
             nativeHandle = 0L
             throw IllegalStateException("Lottie load failed: $err")
         }
-        // Cache an ANativeWindow ref for this Surface once, here, instead of
-        // grabbing one per frame. Per-frame ANativeWindow_fromSurface causes
-        // binder transactions that occasionally retain fence file
-        // descriptors and exhausts the per-process fd budget after a few
-        // minutes of 60 Hz scrolling. See jni_bridge.cpp's `g_windows`
-        // comment for the full incident.
+        // Cache an ANativeWindow ref for the producer's surface once,
+        // here, instead of grabbing one per frame. Per-frame
+        // ANativeWindow_fromSurface causes binder transactions that
+        // occasionally retain fence file descriptors and exhausts the
+        // per-process fd budget after a few minutes of 60 Hz scrolling.
+        // See jni_bridge.cpp's `g_windows` comment for the full incident.
+        val surface = producer.surface
+            ?: run {
+                nativeDestroy(nativeHandle)
+                nativeHandle = 0L
+                throw IllegalStateException("producer.surface == null at init")
+            }
         if (!nativeAttachSurface(nativeHandle, surface)) {
             nativeDestroy(nativeHandle)
             nativeHandle = 0L
             throw IllegalStateException("nativeAttachSurface failed")
         }
+        surfaceAttached = true
         totalFrame = nativeTotalFrame(nativeHandle)
         duration = nativeDuration(nativeHandle)
         val sz = FloatArray(2)
@@ -178,11 +269,11 @@ internal class ThorvgTexture private constructor(
     }
 
     private fun cleanupAfterFailedInitOnHandler() {
-        // Mirror the dispose split: cleanup of the texture entry must run
-        // on the main (platform) thread, not on the render handler thread.
+        // Mirror the dispose split: cleanup of the SurfaceProducer must
+        // run on the main (platform) thread, not on the render handler
+        // thread.
         Handler(Looper.getMainLooper()).post {
-            try { surface.release() } catch (_: Throwable) {}
-            try { entry.release() } catch (_: Throwable) {}
+            try { producer.release() } catch (_: Throwable) {}
         }
     }
 
@@ -230,7 +321,7 @@ internal class ThorvgTexture private constructor(
     }
 
     private fun renderFrame(frame: Float, force: Boolean) {
-        if (disposed || nativeHandle == 0L) return
+        if (disposed || nativeHandle == 0L || !surfaceAttached) return
         val rounded = if (totalFrame >= 1f) Math.round(frame).toFloat() else frame
         if (!force && rounded == lastFrameRendered) return
         nativeRenderFrame(nativeHandle, rounded, renderWidth, renderHeight)
@@ -260,6 +351,7 @@ internal class ThorvgTexture private constructor(
     ): Boolean
 
     companion object {
+        private const val TAG = "ThorvgTexture"
         private const val FRAME_INTERVAL_MS = 16L  // ~60 FPS pacing
 
         /**
@@ -280,9 +372,18 @@ internal class ThorvgTexture private constructor(
             speed: Double,
             callback: (Result<ThorvgTexture>) -> Unit,
         ) {
-            val entry = registry.createSurfaceTexture()
+            // SurfaceProducer is the modern, Impeller-compatible
+            // alternative to SurfaceTexture (Flutter 3.22 landed, 3.24
+            // stable). On API 28+ the engine picks an
+            // ImageReader/HardwareBuffer-backed implementation, which is
+            // not affected by the BufferQueue fence-FD leak that
+            // crashed long scrolls under createSurfaceTexture (see
+            // flutter/flutter#94916).
+            val producer = registry.createSurfaceProducer().apply {
+                setSize(width, height)
+            }
             val tex = ThorvgTexture(
-                entry = entry,
+                producer = producer,
                 handler = handler,
                 initialData = data,
                 renderWidth = width,
@@ -292,6 +393,13 @@ internal class ThorvgTexture private constructor(
                 reverse = reverse,
                 speed = speed,
             )
+            // Wire the SurfaceProducer.Callback before posting init.
+            // The engine never invokes the callback synchronously from
+            // setCallback, but having it set means that if the surface
+            // is destroyed/recreated while init is queued on the
+            // handler, the resulting onSurfaceDestroyed/onSurfaceCreated
+            // events will land in order against `surfaceAttached`.
+            producer.setCallback(tex.producerCallback)
             handler.post {
                 try {
                     tex.initOnHandler()
