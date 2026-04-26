@@ -171,29 +171,33 @@ This means:
 - Match `width` to `(source_aspect × height)` to avoid wasted padding.
 - Capping `height` is the single most effective lever when you need to fit more animations on screen at 60 FPS.
 
-### Off-screen disposal
+### Off-screen disposal (opt-in)
 
 Each mounted `AnimSvgView` holds a thorvg scene tree, an RGBA frame buffer (`renderScale² × W × H × 4` bytes — ≈720 KB for a 300×300 tile at `renderScale: 2.0`), and a platform texture surface. Inside long lists this adds up quickly.
 
-By default, `AnimSvgView` watches its own viewport visibility and tears down the native handle once it's been fully off-screen for `disposeDelay`. When the widget returns to the viewport, it waits `showDelay` before re-creating the handle — symmetric debounce that keeps fast scrolls from churning native resources.
+`AnimSvgView` can watch its own viewport visibility and tear down the native handle once it's been fully off-screen for `disposeDelay`, then re-create it after `showDelay` of returning to visibility — symmetric debounce against fast-scroll churn.
 
 ```dart
 AnimSvgView.network(
   url,
   width: 300,
   height: 300,
-  // Defaults shown here for clarity; you can omit them.
-  disposeWhenInvisible: true,
+  disposeWhenInvisible: true,                     // off by default — see warning
   disposeDelay: const Duration(milliseconds: 700),
   showDelay: const Duration(milliseconds: 150),
 );
 ```
 
-Tuning:
+> **⚠ Default is `false` since v0.0.4.** Enabling this on long, fast-scrolling lists triggers a known Android `SurfaceTexture` file-descriptor leak ([flutter/flutter#94916](https://github.com/flutter/flutter/issues/94916), [flutter-webrtc/flutter-webrtc#1948](https://github.com/flutter-webrtc/flutter-webrtc/issues/1948)) — the create/destroy churn outpaces SurfaceFlinger's fence-FD reclamation, and after a few minutes the raster thread crashes inside `updateTexImage` with `error dup'ing fence fd`.
+>
+> The architectural fix is the upcoming migration to `TextureRegistry.createSurfaceProducer` (Flutter 3.24+), which on API 28+ uses `ImageReader`/`HardwareBuffer` instead of `SurfaceTexture` and sidesteps the BufferQueue fence-FD pipeline. Once that lands the default will flip back to `true`.
+>
+> Until then, enable this only on short or slow-scrolling lists where the create/destroy rate is bounded. Items past `ListView.builder`'s `cacheExtent` are still unmounted naturally — you only lose the *within-cacheExtent-but-off-viewport* freeing.
+
+Tuning when enabled:
 
 | Knob | When to change |
 | --- | --- |
-| `disposeWhenInvisible: false` | Keep the native handle alive while the widget stays mounted. Useful for tests, golden snapshots, or when you've sized your list so all items fit on screen anyway. |
 | `disposeDelay` (lower, e.g. 200 ms) | Memory-constrained device or very long lists — reclaim sooner at the cost of more re-create churn during scrolling. |
 | `disposeDelay` (higher, e.g. 1500 ms) | User scrolls the list back and forth a lot; mask the small re-mount cost behind a longer grace window. |
 | `showDelay` (lower, e.g. 0 ms) | Fewer than ~10 simultaneous animations and you want the snappiest re-show; you accept paying one MethodChannel round-trip per fleeting scroll glance. |
