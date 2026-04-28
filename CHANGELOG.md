@@ -1,3 +1,15 @@
+## 0.0.5
+
+* **Fixed**: Android 15+ 16 KB page size compatibility. The native `libanim_svg_core.so`
+  (Rust) and `libthorvg.so` (C++, via `thorvg_plus 1.1.1`) now ship with `LOAD`
+  segments aligned to 16384 bytes, so they load directly on devices using 16 KB
+  memory pages instead of falling back to page-size-compat mode. Required for
+  Play Console submissions targeting `targetSdk >= 35` after Nov 2025
+  ([developer.android.com/16kb-page-size](https://developer.android.com/16kb-page-size)).
+* Bumped `thorvg_plus` constraint to `^1.1.1`.
+* Pinned plugin `ndkVersion` to r27 (`27.0.12077973`) — the lowest NDK whose
+  C/C++ toolchain defaults to 16 KB alignment.
+
 ## 0.0.4
 
 * **Breaking**: minimum Flutter is now `>=3.24.0` (was `>=3.3.0`). Required for the

@@ -1,3 +1,13 @@
+## 1.1.1
+
+* **Fixed**: Android 15+ 16 KB page size compatibility. `libthorvg.so` is now
+  linked with `-Wl,-z,max-page-size=16384` and `-Wl,-z,common-page-size=16384`,
+  so all `LOAD` segments are aligned to 16384 bytes. Devices using 16 KB
+  memory pages (Android 15+) load the library directly instead of falling back
+  to page-size-compat mode. Required for Play Console submissions targeting
+  `targetSdk >= 35` after Nov 2025
+  ([developer.android.com/16kb-page-size](https://developer.android.com/16kb-page-size)).
+
 ## 1.1.0
 
 * **Breaking**: minimum Flutter is now `>=3.24.0` (was `>=3.3.0`).

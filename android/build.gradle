@@ -29,6 +29,12 @@ android {
 
     compileSdk = 36
 
+    // r27+ defaults the C/C++ toolchain to 16 KB page alignment, required
+    // for Android 15+. The Rust crate still needs its own rustflags
+    // (see native/anim_svg_core/.cargo/config.toml) — bundled lld there
+    // does not inherit this default.
+    ndkVersion = "27.0.12077973"
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

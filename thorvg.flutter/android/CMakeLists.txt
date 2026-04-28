@@ -73,3 +73,14 @@ endif()
 # used by jni_bridge.cpp to blit the SwCanvas buffer directly into the
 # Flutter SurfaceTexture without an intermediate Bitmap.
 target_link_libraries(thorvg PRIVATE log android)
+
+# Android 15+ uses 16 KB memory pages; ELF LOAD segments must be aligned to
+# 16384 bytes or the loader falls back to page-size-compat mode (and Play
+# Console rejects uploads with targetSdk >= 35). Rust's bundled lld does
+# not inherit this from the NDK, but for the C++ toolchain setting both
+# max-page-size and common-page-size at link time is sufficient.
+if(ANDROID)
+  target_link_options(thorvg PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384")
+endif()

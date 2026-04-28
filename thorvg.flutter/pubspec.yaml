@@ -2,7 +2,7 @@ name: thorvg_plus
 description: >-
   Source-built fork of thorvg for Flutter with full iOS simulator support.
   Drop-in replacement while upstream thorvg.flutter#22 is unresolved.
-version: 1.1.0
+version: 1.1.1
 homepage: https://github.com/robotoss/anim_svg/tree/master/thorvg.flutter
 repository: https://github.com/robotoss/anim_svg
 issue_tracker: https://github.com/robotoss/anim_svg/issues
