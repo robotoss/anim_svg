@@ -1,6 +1,6 @@
 [package]
 name = "anim_svg_core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Native SVG → Lottie converter for the anim_svg Flutter package"
 license = "MIT"

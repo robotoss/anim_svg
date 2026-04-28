@@ -1,0 +1,17 @@
+# Android 15+ devices use 16 KB memory pages; ELF LOAD segments must be
+# aligned to 16384 bytes. Rust's bundled lld does NOT inherit the NDK's
+# default page size, so the linker flag is required regardless of NDK
+# version. Scoped per Android target so iOS / host / desktop builds are
+# unaffected.
+
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384", "-C", "link-arg=-Wl,-z,common-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384", "-C", "link-arg=-Wl,-z,common-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384", "-C", "link-arg=-Wl,-z,common-page-size=16384"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384", "-C", "link-arg=-Wl,-z,common-page-size=16384"]

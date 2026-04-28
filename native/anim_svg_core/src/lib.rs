@@ -12,6 +12,7 @@ pub mod log;
 pub mod map;
 pub mod parse;
 pub mod serialize;
+pub mod validate;
 
 pub use envelope::ConvertEnvelope;
 pub use error::{ConvertError, ErrorKind};
@@ -43,6 +44,7 @@ pub fn convert(svg: &str, options: ConvertOptions) -> ConvertEnvelope {
     let svg_raw = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
 
     let lottie_doc = map::svg_to_lottie::map(doc, options.frame_rate, &mut logs);
+    validate::validate_positions(&lottie_doc, &mut logs);
     let lottie = serialize::lottie::serialize(&lottie_doc);
 
     logs.info(

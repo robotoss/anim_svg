@@ -79,7 +79,10 @@ pub fn parse(raw: Option<&str>, logs: &mut LogCollector) -> Vec<SvgStaticTransfo
                     );
                     continue;
                 }
-                out.extend(decompose_matrix(&args));
+                out.push(SvgStaticTransform {
+                    kind: SvgTransformKind::Matrix,
+                    values: args,
+                });
             }
             other => {
                 logs.warn(
@@ -197,14 +200,23 @@ mod tests {
     }
 
     #[test]
-    fn matrix_identity_decomposes_to_zero_translate() {
+    fn matrix_kept_as_matrix_kind() {
         let out = parse_str("matrix(1 0 0 1 0 0)");
-        assert_eq!(out.len(), 3);
-        assert_eq!(out[0].kind, SvgTransformKind::Translate);
-        assert_eq!(out[0].values, vec![0.0, 0.0]);
-        assert!((out[1].values[0] - 0.0).abs() < 1e-9);
-        assert!((out[2].values[0] - 1.0).abs() < 1e-9);
-        assert!((out[2].values[1] - 1.0).abs() < 1e-9);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].kind, SvgTransformKind::Matrix);
+        assert_eq!(out[0].values, vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn matrix_with_rotation_and_shear_keeps_all_six_values() {
+        let out = parse_str("matrix(.710141 -.41 0.71 0.409919 -555 292)");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].kind, SvgTransformKind::Matrix);
+        assert_eq!(out[0].values.len(), 6);
+        assert!((out[0].values[0] - 0.710141).abs() < 1e-9);
+        assert!((out[0].values[1] - -0.41).abs() < 1e-9);
+        assert!((out[0].values[2] - 0.71).abs() < 1e-9);
+        assert!((out[0].values[3] - 0.409919).abs() < 1e-9);
     }
 
     #[test]

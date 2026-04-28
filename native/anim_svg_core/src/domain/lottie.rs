@@ -285,6 +285,8 @@ pub struct LottieTransform {
     pub scale: LottieVectorProp,
     pub rotation: LottieScalarProp,
     pub opacity: LottieScalarProp,
+    pub skew: LottieScalarProp,
+    pub skew_axis: LottieScalarProp,
 }
 
 impl Default for LottieTransform {
@@ -295,6 +297,8 @@ impl Default for LottieTransform {
             scale: LottieVectorProp::Static { value: vec![100.0, 100.0] },
             rotation: LottieScalarProp::Static { value: 0.0 },
             opacity: LottieScalarProp::Static { value: 100.0 },
+            skew: LottieScalarProp::Static { value: 0.0 },
+            skew_axis: LottieScalarProp::Static { value: 0.0 },
         }
     }
 }
