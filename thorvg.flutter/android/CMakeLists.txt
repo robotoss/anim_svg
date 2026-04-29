@@ -33,20 +33,20 @@ include_directories(
   ${THORVG_ROOT}/src/loaders/raw
 )
 
-file(GLOB PLUGIN_SRC    "${PLUGIN_ROOT}/src/*.cpp")
-file(GLOB COMMON_SRC    "${THORVG_ROOT}/src/common/*.cpp")
-file(GLOB RENDERER_SRC  "${THORVG_ROOT}/src/renderer/*.cpp")
-file(GLOB SW_ENGINE_SRC "${THORVG_ROOT}/src/renderer/sw_engine/*.cpp")
-file(GLOB GL_ENGINE_SRC "${THORVG_ROOT}/src/renderer/gl_engine/*.cpp")
-file(GLOB LOTTIE_SRC    "${THORVG_ROOT}/src/loaders/lottie/tvgLottie*.cpp")
-file(GLOB PNG_SRC       "${THORVG_ROOT}/src/loaders/png/*.cpp")
-file(GLOB JPG_SRC       "${THORVG_ROOT}/src/loaders/jpg/*.cpp")
-file(GLOB RAW_SRC       "${THORVG_ROOT}/src/loaders/raw/*.cpp")
+file(GLOB PLUGIN_SRC CONFIGURE_DEPENDS "${PLUGIN_ROOT}/src/*.cpp")
+file(GLOB COMMON_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/common/*.cpp")
+file(GLOB RENDERER_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/renderer/*.cpp")
+file(GLOB SW_ENGINE_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/renderer/sw_engine/*.cpp")
+file(GLOB GL_ENGINE_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/renderer/gl_engine/*.cpp")
+file(GLOB LOTTIE_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/loaders/lottie/tvgLottie*.cpp")
+file(GLOB PNG_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/loaders/png/*.cpp")
+file(GLOB JPG_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/loaders/jpg/*.cpp")
+file(GLOB RAW_SRC CONFIGURE_DEPENDS "${THORVG_ROOT}/src/loaders/raw/*.cpp")
 
 # JNI bridge — exposes the existing extern "C" API to Kotlin via
 # Java_com_robotoss_thorvg_1plus_* native methods, plus a
 # Surface-aware render path that skips Bitmap/ui.Image entirely.
-file(GLOB JNI_SRC       "${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/*.cpp")
+file(GLOB JNI_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/*.cpp")
 
 add_library(thorvg SHARED
   ${PLUGIN_SRC}
