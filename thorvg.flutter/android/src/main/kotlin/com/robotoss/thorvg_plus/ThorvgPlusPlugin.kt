@@ -95,6 +95,9 @@ class ThorvgPlusPlugin : FlutterPlugin, MethodCallHandler {
         val repeat = call.argument<Boolean>("repeat") ?: true
         val reverse = call.argument<Boolean>("reverse") ?: false
         val speed = call.argument<Double>("speed") ?: 1.0
+        // Sprint 6 GL toggle. Default false preserves the SmartRender SW
+        // path for callers that don't pass the flag.
+        val useGl = call.argument<Boolean>("useGl") ?: false
 
         if (data == null || data.isEmpty()) {
             result.error("BAD_ARGS", "missing 'data'", null)
@@ -115,6 +118,7 @@ class ThorvgPlusPlugin : FlutterPlugin, MethodCallHandler {
             repeat = repeat,
             reverse = reverse,
             speed = speed,
+            useGl = useGl,
         ) { texResult ->
             texResult.fold(
                 onSuccess = { tex ->

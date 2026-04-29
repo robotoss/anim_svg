@@ -52,6 +52,15 @@ internal class ThorvgTexture private constructor(
     private val repeat: Boolean,
     private val reverse: Boolean,
     private val speed: Double,
+    /**
+     * GL backend opt-in (sprint 6). When `true` the native bridge
+     * constructs the C++ TvgLottieAnimation around `tvg::GlCanvas`
+     * and routes rendering through `EglRenderContext` instead of the
+     * SwCanvas + ANativeWindow_lock memcpy path. Default `false`
+     * (SmartRender SwCanvas) preserves existing behaviour for callers
+     * that don't pass the flag.
+     */
+    private val useGl: Boolean,
 ) {
 
     val id: Long = producer.id()
@@ -228,9 +237,11 @@ internal class ThorvgTexture private constructor(
     // -------------------------------------------------------------------- //
 
     private fun initOnHandler() {
-        nativeHandle = nativeCreate()
+        nativeHandle = if (useGl) nativeCreateGl() else nativeCreate()
         if (nativeHandle == 0L) {
-            throw IllegalStateException("nativeCreate returned 0")
+            throw IllegalStateException(
+                if (useGl) "nativeCreateGl returned 0" else "nativeCreate returned 0"
+            )
         }
         if (!nativeLoad(nativeHandle, initialData, renderWidth, renderHeight)) {
             val err = nativeError(nativeHandle)
@@ -333,6 +344,7 @@ internal class ThorvgTexture private constructor(
     // -------------------------------------------------------------------- //
 
     private external fun nativeCreate(): Long
+    private external fun nativeCreateGl(): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeLoad(handle: Long, data: ByteArray, w: Int, h: Int): Boolean
     private external fun nativeDuration(handle: Long): Float
@@ -370,6 +382,7 @@ internal class ThorvgTexture private constructor(
             repeat: Boolean,
             reverse: Boolean,
             speed: Double,
+            useGl: Boolean = false,
             callback: (Result<ThorvgTexture>) -> Unit,
         ) {
             // SurfaceProducer is the modern, Impeller-compatible
@@ -392,6 +405,7 @@ internal class ThorvgTexture private constructor(
                 repeat = repeat,
                 reverse = reverse,
                 speed = speed,
+                useGl = useGl,
             )
             // Wire the SurfaceProducer.Callback before posting init.
             // The engine never invokes the callback synchronously from

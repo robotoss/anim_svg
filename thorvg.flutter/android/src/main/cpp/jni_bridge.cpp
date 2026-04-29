@@ -22,10 +22,12 @@
 #include <android/log.h>
 #include <cstring>
 #include <cstdlib>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 
 #include "tvgFlutterLottieAnimation.h"
+#include "gl_context.h"
 
 #define LOG_TAG "ThorvgPlus"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -62,6 +64,38 @@ static ANativeWindow* lookupWindowLocked(jlong handle) {
     return it == g_windows.end() ? nullptr : it->second;
 }
 
+// GL bridge state. The presence of a handle in g_glContexts is the
+// authoritative "this animation is in GL mode" check used by the render
+// path; the SW path is unchanged for handles absent from this map.
+//
+// Lifecycle:
+//   nativeCreateGl   -> allocates the C++ TvgLottieAnimation via create_gl
+//                       and inserts a (handle, nullptr) entry so subsequent
+//                       calls know this is a GL handle even before a
+//                       surface is attached.
+//   nativeAttachSurface(GL) -> creates EglRenderContext from the
+//                              ANativeWindow and stores it; then makes the
+//                              context current and calls set_gl_context so
+//                              later resize() inside load() can target the
+//                              GlCanvas onto FBO 0.
+//   nativeRenderFrame(GL)   -> makeCurrent -> frame/update/render ->
+//                              swapBuffers.
+//   nativeDetachSurface(GL) -> tears down the EglRenderContext (and its
+//                              EGLSurface) but keeps the C++ animation.
+//   nativeDestroy(GL)       -> tears down both.
+static std::unordered_map<jlong, std::unique_ptr<thorvg_plus::EglRenderContext>>
+    g_glContexts;
+
+static bool isGlHandleLocked(jlong handle) {
+    return g_glContexts.find(handle) != g_glContexts.end();
+}
+
+static thorvg_plus::EglRenderContext* lookupGlContextLocked(jlong handle) {
+    auto it = g_glContexts.find(handle);
+    if (it == g_glContexts.end()) return nullptr;
+    return it->second.get();
+}
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL
@@ -71,10 +105,36 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeCreate(
     return reinterpret_cast<jlong>(create());
 }
 
+// GL counterpart of nativeCreate. Allocates a TvgLottieAnimation built
+// around tvg::GlCanvas (see tvgFlutterLottieAnimation.cpp::create_gl).
+// Inserts a placeholder entry into g_glContexts so subsequent calls
+// recognise the handle as GL even before the EGL context exists; the
+// real EglRenderContext is created later by nativeAttachSurface, when
+// the ANativeWindow is available.
+JNIEXPORT jlong JNICALL
+Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeCreateGl(
+        JNIEnv* /*env*/, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lk(engineInitMutex());
+    auto* anim = create_gl();
+    if (!anim) return 0;
+    {
+        std::lock_guard<std::mutex> wlk(g_windowsMutex);
+        g_glContexts.emplace(reinterpret_cast<jlong>(anim), nullptr);
+    }
+    return reinterpret_cast<jlong>(anim);
+}
+
 JNIEXPORT void JNICALL
 Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeDestroy(
         JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     if (!handle) return;
+    // Tear down the EGL context (if GL handle) BEFORE we release the
+    // ANativeWindow it borrows from — the destructor calls
+    // eglDestroySurface against that window.
+    {
+        std::lock_guard<std::mutex> lk(g_windowsMutex);
+        g_glContexts.erase(handle);
+    }
     // Release any cached ANativeWindow for this handle before destroying the
     // thorvg side. After this point no more nativeRenderFrame calls can
     // succeed for this handle.
@@ -105,6 +165,32 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeAttachSurface(
         ANativeWindow_release(prev);
     }
     g_windows[handle] = window;
+
+    // GL handles also need the EGL context bound to the freshly-attached
+    // ANativeWindow. Skip silently for SW handles (g_glContexts entry
+    // missing means SW mode).
+    if (isGlHandleLocked(handle)) {
+        // Drop any stale context tied to a previous (now-released) window.
+        g_glContexts[handle].reset();
+        auto ctx = thorvg_plus::EglRenderContext::create(window);
+        if (!ctx) {
+            LOGE("EglRenderContext::create failed; falling back to SW would "
+                 "require remaking the TvgLottieAnimation. Aborting attach.");
+            return JNI_FALSE;
+        }
+        // Make current so the very next set_gl_context (and any later
+        // load/resize that calls GlCanvas::target) executes against a live
+        // GL context. set_gl_context is a no-op against zero size, so it
+        // just stashes the handles for the resize() inside the imminent
+        // nativeLoad call.
+        if (!ctx->makeCurrent()) {
+            LOGE("eglMakeCurrent failed right after EGL context creation");
+            return JNI_FALSE;
+        }
+        set_gl_context(reinterpret_cast<FlutterLottieAnimation*>(handle),
+                       ctx->display(), ctx->surface(), ctx->context());
+        g_glContexts[handle] = std::move(ctx);
+    }
     return JNI_TRUE;
 }
 
@@ -113,6 +199,14 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeDetachSurface(
         JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     if (!handle) return;
     std::lock_guard<std::mutex> lk(g_windowsMutex);
+    // Tear down the GL surface BEFORE releasing the ANativeWindow it
+    // owns; the EglRenderContext destructor calls eglDestroySurface,
+    // which requires the window pointer to still be valid.
+    if (isGlHandleLocked(handle)) {
+        g_glContexts[handle].reset();
+        // Keep the placeholder entry so we still recognize the handle
+        // as GL on the next attach (which will rebuild the context).
+    }
     if (auto* w = lookupWindowLocked(handle)) {
         ANativeWindow_release(w);
         g_windows.erase(handle);
@@ -131,6 +225,20 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeLoad(
     if (!data) return JNI_FALSE;
     env->GetByteArrayRegion(jdata, 0, len, reinterpret_cast<jbyte*>(data));
     data[len] = '\0';  // thorvg's load() uses strlen() on the data pointer
+
+    // GL: load() internally calls resize() which calls GlCanvas::target;
+    // that touches GL state, so the EGL context must be current right
+    // now. SW path is untouched.
+    {
+        std::lock_guard<std::mutex> lk(g_windowsMutex);
+        if (auto* gl = lookupGlContextLocked(handle)) {
+            if (!gl->makeCurrent()) {
+                LOGE("eglMakeCurrent failed in nativeLoad");
+                std::free(data);
+                return JNI_FALSE;
+            }
+        }
+    }
 
     char mime[] = "json";
     const bool ok = load(anim, data, mime, w, h);
@@ -165,6 +273,16 @@ JNIEXPORT void JNICALL
 Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeResize(
         JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint w, jint h) {
     if (!handle) return;
+    // GL: resize -> GlCanvas::target needs the EGL context current.
+    {
+        std::lock_guard<std::mutex> lk(g_windowsMutex);
+        if (auto* gl = lookupGlContextLocked(handle)) {
+            if (!gl->makeCurrent()) {
+                LOGE("eglMakeCurrent failed in nativeResize");
+                return;
+            }
+        }
+    }
     resize(reinterpret_cast<FlutterLottieAnimation*>(handle), w, h);
 }
 
@@ -192,19 +310,46 @@ Java_com_robotoss_thorvg_1plus_ThorvgTexture_nativeRenderFrame(
     if (!handle) return JNI_FALSE;
     auto* anim = reinterpret_cast<FlutterLottieAnimation*>(handle);
 
-    // Pull the cached ANativeWindow under the mutex; only the producer side
-    // (this thread) holds a reference between attach and detach, so we
-    // don't need to extra-ref the pointer for the call itself.
+    // Pull the cached ANativeWindow + (optionally) the EGL context.
+    // Single mutex acquisition to keep the lookup atomic against an
+    // attach/detach interleaved by another thread.
     ANativeWindow* window;
+    thorvg_plus::EglRenderContext* gl;
     {
         std::lock_guard<std::mutex> lk(g_windowsMutex);
         window = lookupWindowLocked(handle);
+        gl = lookupGlContextLocked(handle);
     }
     if (!window) {
         LOGE("nativeRenderFrame called with no attached surface");
         return JNI_FALSE;
     }
 
+    if (gl) {
+        // GL path: thorvg writes straight into FBO 0 (the EGL window
+        // surface, which sits on top of SurfaceProducer's ImageReader);
+        // eglSwapBuffers hands the buffer to Flutter's raster thread.
+        // No CPU memcpy, no ANativeWindow_lock.
+        if (!gl->makeCurrent()) {
+            LOGE("eglMakeCurrent failed in nativeRenderFrame (GL)");
+            return JNI_FALSE;
+        }
+        frame(anim, frameNo);
+        if (!update(anim)) {
+            LOGE("update() failed (GL): %s", error(anim));
+            return JNI_FALSE;
+        }
+        // render() returns nullptr in GL mode; the FBO is the output.
+        // We still call it to drive draw + sync inside thorvg.
+        (void)render(anim);
+        if (!gl->swapBuffers()) {
+            LOGE("eglSwapBuffers failed");
+            return JNI_FALSE;
+        }
+        return JNI_TRUE;
+    }
+
+    // SW path (unchanged from pre-sprint-6).
     frame(anim, frameNo);
     if (!update(anim)) {
         LOGE("update() failed: %s", error(anim));
