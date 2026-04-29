@@ -4,6 +4,15 @@
 #define THORVG_VERSION_STRING "1.0.3"
 
 #define THORVG_SW_RASTER_SUPPORT 1
+// GL backend, OpenGL ES target. Sources vendored from upstream thorvg
+// v1.0.3 in src/renderer/gl_engine/. Compile + link only — the upstream
+// __APPLE__ branch in tvgGl.cpp:134-158 dlopen()s
+// /System/Library/Frameworks/OpenGL.framework/OpenGL which exists on
+// macOS but NOT on iOS, so glInit() fails at runtime here. Sprint 5
+// swaps the runtime in by routing GLES through ANGLE-Metal, after
+// which the runtime path is functional.
+#define THORVG_GL_RASTER_SUPPORT 1
+#define THORVG_GL_TARGET_GLES 1
 #define THORVG_THREAD_SUPPORT 1
 #define THORVG_FILE_IO_SUPPORT 1
 
