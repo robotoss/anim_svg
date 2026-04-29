@@ -179,7 +179,7 @@ class _AspectFittedSvgState extends State<_AspectFittedSvg> {
               widget.assetPath,
               width: renderW,
               height: renderH,
-              renderScale: 2.0,
+              renderScale: 5.0,
               // Default DeveloperLogger() emits to dart:developer. The
               // explicit pass keeps this demo self-documenting: every
               // pipeline stage (load / convert / engine / visibility /
