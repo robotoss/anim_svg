@@ -26,6 +26,7 @@ include_directories(
   ${THORVG_ROOT}/src/common
   ${THORVG_ROOT}/src/renderer
   ${THORVG_ROOT}/src/renderer/sw_engine
+  ${THORVG_ROOT}/src/renderer/gl_engine
   ${THORVG_ROOT}/src/loaders/lottie
   ${THORVG_ROOT}/src/loaders/png
   ${THORVG_ROOT}/src/loaders/jpg
@@ -36,6 +37,7 @@ file(GLOB PLUGIN_SRC    "${PLUGIN_ROOT}/src/*.cpp")
 file(GLOB COMMON_SRC    "${THORVG_ROOT}/src/common/*.cpp")
 file(GLOB RENDERER_SRC  "${THORVG_ROOT}/src/renderer/*.cpp")
 file(GLOB SW_ENGINE_SRC "${THORVG_ROOT}/src/renderer/sw_engine/*.cpp")
+file(GLOB GL_ENGINE_SRC "${THORVG_ROOT}/src/renderer/gl_engine/*.cpp")
 file(GLOB LOTTIE_SRC    "${THORVG_ROOT}/src/loaders/lottie/tvgLottie*.cpp")
 file(GLOB PNG_SRC       "${THORVG_ROOT}/src/loaders/png/*.cpp")
 file(GLOB JPG_SRC       "${THORVG_ROOT}/src/loaders/jpg/*.cpp")
@@ -51,6 +53,7 @@ add_library(thorvg SHARED
   ${COMMON_SRC}
   ${RENDERER_SRC}
   ${SW_ENGINE_SRC}
+  ${GL_ENGINE_SRC}
   ${LOTTIE_SRC}
   ${PNG_SRC}
   ${JPG_SRC}
@@ -72,7 +75,11 @@ endif()
 # `android` provides ANativeWindow_fromSurface / lock / unlockAndPost,
 # used by jni_bridge.cpp to blit the SwCanvas buffer directly into the
 # Flutter SurfaceTexture without an intermediate Bitmap.
-target_link_libraries(thorvg PRIVATE log android)
+# `EGL` + `GLESv3` are required by gl_engine (sprint 2): EGL hosts the
+# render context Sprint 4 will create against the SurfaceProducer surface;
+# GLESv3 (a strict superset of v2) provides the GLES symbols ThorVG calls
+# for shaders, FBOs, textures, and stencil-based clipping.
+target_link_libraries(thorvg PRIVATE log android EGL GLESv3)
 
 # Android 15+ uses 16 KB memory pages; ELF LOAD segments must be aligned to
 # 16384 bytes or the loader falls back to page-size-compat mode (and Play

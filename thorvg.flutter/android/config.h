@@ -4,6 +4,12 @@
 #define THORVG_VERSION_STRING "1.0.3"
 
 #define THORVG_SW_RASTER_SUPPORT 1
+// GL backend, OpenGL ES target (mobile). Sources vendored from upstream
+// thorvg v1.0.3 at src/renderer/gl_engine/. Activated alongside the
+// existing SW backend so we can flip between them per-instance via the
+// hybrid useGl flag landed in sprint 6.
+#define THORVG_GL_RASTER_SUPPORT 1
+#define THORVG_GL_TARGET_GLES 1
 #define THORVG_THREAD_SUPPORT 1
 #define THORVG_FILE_IO_SUPPORT 1
 
