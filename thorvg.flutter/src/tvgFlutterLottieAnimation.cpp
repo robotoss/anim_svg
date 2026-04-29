@@ -23,6 +23,17 @@
 #include <thorvg.h>
 #include "tvgFlutterLottieAnimation.h"
 
+#if defined(__ANDROID__)
+  #include <android/log.h>
+  #define TVG_FLUTTER_LOG(...) \
+      __android_log_print(ANDROID_LOG_ERROR, "ThorvgPlus.anim", __VA_ARGS__)
+#elif defined(__APPLE__)
+  #include <stdio.h>
+  #define TVG_FLUTTER_LOG(...) fprintf(stderr, "[ThorvgPlus.anim] " __VA_ARGS__)
+#else
+  #define TVG_FLUTTER_LOG(...) ((void)0)
+#endif
+
 using namespace std;
 using namespace tvg;
 
@@ -74,9 +85,14 @@ public:
 
     bool load(char* data, char* mimetype, int width, int height)
     {
-        errorMsg = NoError;
-
+        // Preserve the constructor-time error (e.g. "init() fail",
+        // "Invalid canvas") if the engine is not in a usable state —
+        // resetting to NoError here would mask that diagnosis at the
+        // Dart side (sprint 6e regression: GL constructor failures
+        // surfaced as the meaningless "Lottie load failed: None").
         if (!canvas) return false;
+
+        errorMsg = NoError;
 
         if (data != nullptr && data[0] == '\0')
         {
@@ -264,6 +280,7 @@ private:
         if (Initializer::init(4) != Result::Success)
         {
             errorMsg = "init() fail";
+            TVG_FLUTTER_LOG("Initializer::init(4) failed");
             return;
         }
 
@@ -287,7 +304,13 @@ private:
             // the default in sprint 6.
             canvas = SwCanvas::gen(EngineOption::SmartRender);
         }
-        if (!canvas) errorMsg = "Invalid canvas";
+        if (!canvas) {
+            errorMsg = useGl ? "GlCanvas::gen returned null — engine not "
+                               "compiled with THORVG_GL_RASTER_SUPPORT, "
+                               "or Initializer::engineInit==0 at gen time"
+                             : "SwCanvas::gen returned null";
+            TVG_FLUTTER_LOG("%s", errorMsg);
+        }
 
         animation = Animation::gen();
         if (!animation) errorMsg = "Invalid animation";
