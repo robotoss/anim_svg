@@ -84,23 +84,62 @@ Available emulators: `Pixel_6`, `Pixel_9_Pro`. Prefer `Pixel_6` (slower, more re
    adb shell dumpsys meminfo com.zharume.anim_svg.example | grep -E 'TOTAL|Graphics|GL|EGL'
    ```
 
-## Baseline numbers (FILL IN AFTER RUN)
+## Baseline numbers — first capture, 2026-04-29
 
-### iOS — iPhone Анна (2), iOS 26.3.1
+### Tooling caveats discovered during the run
 
-| Scenario | P50 (ms) | P95 (ms) | P99 (ms) | Top-1 symbol | Top-2 symbol | Top-3 symbol | IOSurface count |
-|---|---|---|---|---|---|---|---|
-| A — single fullscreen | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| B — list of 24 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| C — single small static | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+Two surprises that materially changed how the baseline can be read:
 
-### Android — Pixel 6 emulator (or device, specify)
+1. **`dumpsys gfxinfo` is useless for Flutter apps.** HWUI (the Android Java view rasterizer) draws into ViewRootImpl; Flutter draws into a SurfaceView and bypasses HWUI entirely. After 30 s of continuous scrolling we got `Total frames rendered: 0` — HWUI literally never sees Flutter's frames. The frame-stats commands in the section above stay documented as a template, but for THIS app the only things gfxinfo reports usefully are: the **`GraphicBufferAllocator` total** and the **ImageReader/SurfaceView buffer enumeration** (memory side, not frame side).
 
-| Scenario | P50 (ms) | P95 (ms) | P99 (ms) | Top-1 symbol | Top-2 symbol | Top-3 symbol | Graphics PSS (KB) |
-|---|---|---|---|---|---|---|---|
-| A — single fullscreen | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| B — list of 24 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| C — single small static | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+2. **`simpleperf` requires a debuggable APK.** Profile builds are not debuggable by default. Attempting `simpleperf record -e task-clock:u --app com.zharume.anim_svg_example` returns `Permission denied` even with `setprop security.perf_harden 0` (already 0). Two paths to fix in a follow-up: (a) add `<application android:debuggable="true">` to `example/android/app/src/profile/AndroidManifest.xml` and rebuild, or (b) capture the same data interactively via Flutter DevTools → Performance / CPU profiler (graphical, not scriptable). Deferred to a Sprint 7 sub-step before re-measuring.
+
+3. **`developer.log()` calls don't appear in `adb logcat` in Flutter profile mode.** They're routed through the VM Service to the `flutter run` console, but `flutter run`'s stdout is mostly silent in profile (only IMPORTANT-tagged engine messages echo). The on-screen overlay still works — visible numbers are captured from screenshots below, not from logs.
+
+### What we actually measured — Pixel emulator (sdk gphone64 arm64, Android 16/API 36, host Apple Silicon)
+
+Scenario B only (the existing demo list — 24 items × `renderScale: 2.0`, AnimSvgView with VisibilityDetector, default disposeWhenInvisible).
+
+**Flutter UI/raster-thread frame time** (from on-screen `PerfOverlay`, rolling p50/p95/p99 over last 120 frames):
+
+| State | p50 | p95 | p99 |
+|---|---|---|---|
+| Idle (no scroll) | 2.6 ms | 4.3 ms | 5.3 ms |
+| 30 s of fast swipes (200 ms/swipe) | 2.7 ms | 4.1 ms | 5.0 ms |
+| 30 s of realistic swipes (600 ms/swipe + 1.2 s pause) | 3.6 ms | 4.9 ms | 6.4 ms |
+
+**Headline:** Flutter's UI/raster thread spends < 6 ms even under continuous scroll — well within the 16.6 ms vsync budget. **The Flutter pipeline is NOT the bottleneck.** All heavy work (thorvg `SwCanvas::draw`, ABGR→RGBA byte order to ANativeWindow) happens on the per-texture native producer thread (`ThorvgTexture.kt`'s shared render `Handler/Looper`); `SchedulerBinding.addTimingsCallback` is blind to that thread by design.
+
+**Memory pressure** (from `dumpsys gfxinfo … | tail` after 30 s warmup):
+
+- `Total imported by gralloc: 122 856 KiB` (~120 MiB), `Total allocated by GraphicBufferAllocator (estimate): 25 724 KB` (~25 MiB)
+- ImageReader buffer geometries actually live in memory simultaneously:
+  - `770×440` × ~10 buffers (~13 MiB)
+  - `821×378` × ~7 buffers (~17 MiB)
+  - `440×440` × ~6 buffers (~9 MiB)
+  - SurfaceView/ViewRootImpl `1280×2856` × 4 buffers (~57 MiB — Flutter's own surface, not thorvg's)
+- Each `ThorvgTexture` instantiates an `ImageReader` with 3-4 backing `HardwareBuffer`s (visible from the `ImageReader-WxHfFFmM-pid-id` naming).
+
+**Headline #2:** the visible memory cost on Android is dominated by Flutter's own SurfaceView (~57 MiB) + per-texture triple/quad-buffered ImageReaders (~40 MiB combined for ~5-6 active textures). thorvg's `uint8_t* buffer` (the SwCanvas write target) is NOT what's eating gralloc — it's the consumer-side `HardwareBuffer`s sitting between the producer thread and Flutter's compositor.
+
+### What this means for the GL migration
+
+- **Android — CPU savings:** the ~120 MiB visible memory will mostly NOT shrink with GL (the same `ImageReader` + `SurfaceProducer` pipeline keeps its triple-buffering). The win there is on the producer thread's CPU: SwCanvas rasterization + ABGR memcpy → GPU rasterization + zero copy. Magnitude unmeasurable without simpleperf, but architecturally guaranteed for any non-trivial rasterization workload.
+- **Android — UI thread:** numbers will not change. Already at 2-5 ms.
+- **iOS — bigger win:** the `vImagePermuteChannels_ARGB8888` swizzle is per-pixel CPU work that disappears entirely under ANGLE-Metal's BGRA_EXT IOSurface binding. Memory side: same `CVPixelBufferPool` triple-buffering retained.
+- **Static-composition risk (Scenario C, not measured):** SmartRender's CPU win on mostly-static logos is invisible to all our metrics here (only ~6 dynamic anims in this demo, none mostly-static). Have to take the risk on faith for now; mitigation is the hybrid SW/GL toggle in Sprint 6.
+
+### Decision gate
+
+**Proceed to Sprint 1.**
+
+The Flutter pipeline is fine. The producer-thread CPU cost we can't measure on this emulator setup, but architectural reasoning + the brain memory note "UI jank in anim_svg comes from thorvg render engine" + the visible 120 MiB graphics footprint together justify the migration. The hybrid SW/GL toggle in Sprint 6 covers the Scenario C downside.
+
+**Re-measure recipe for Sprint 7** (must do BEFORE writing ADR-025):
+1. Add `android:debuggable="true"` to `example/android/app/src/profile/AndroidManifest.xml`, rebuild profile APK.
+2. Capture `simpleperf record -p $PID -e task-clock:u -f 1000 --duration 30 -g` during the same realistic-scroll scenario, both pre-GL (sw_engine commit `d10b643`) and post-GL.
+3. Run `simpleperf report --children --sort symbol -g` and grep for `tvg::SwRaster*`, `tvg::Picture::draw`, `__memcpy_aarch64`. The pre-GL profile should show these in the top-10 by self+children; post-GL should show them at 0 or near-zero (replaced by GLES driver symbols + ANGLE on iOS).
+4. iPhone Анна (2) for the iOS half (physical device, profile mode works there).
 
 ## Decision gate (read after baseline is captured)
 
