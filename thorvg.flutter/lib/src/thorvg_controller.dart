@@ -55,6 +55,13 @@ class ThorvgController {
   /// [width] / [height] are the rasterization dimensions in device pixels —
   /// thorvg renders straight into a buffer of this size, so callers should
   /// already have applied the device pixel ratio.
+  /// [useGl] (sprint 6, **experimental**) opts the texture into the GL
+  /// renderer (`tvg::GlCanvas` backed by ANGLE-Metal on iOS, native EGL
+  /// on Android). Default `false` keeps the SmartRender SwCanvas path
+  /// — the right choice for static and mostly-static logos because
+  /// SmartRender is silently ignored by the GL engine. Flip to `true`
+  /// for compositions where the SW path is genuinely CPU-bound (large
+  /// canvas, every-frame keyframe churn).
   static Future<ThorvgController> create({
     required Uint8List data,
     required int width,
@@ -63,6 +70,7 @@ class ThorvgController {
     bool repeat = true,
     bool reverse = false,
     double speed = 1.0,
+    bool useGl = false,
   }) async {
     if (data.isEmpty) {
       throw ArgumentError.value(data, 'data', 'must not be empty');
@@ -79,6 +87,7 @@ class ThorvgController {
       'repeat': repeat,
       'reverse': reverse,
       'speed': speed,
+      'useGl': useGl,
     });
     if (raw == null) {
       throw StateError('thorvg_plus.create returned null');

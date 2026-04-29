@@ -180,6 +180,10 @@ class _AspectFittedSvgState extends State<_AspectFittedSvg> {
               width: renderW,
               height: renderH,
               renderScale: 5.0,
+              // Sprint 6 smoke test: route the demo through the new
+              // GlCanvas + ANGLE-Metal/EGL path. SmartRender SwCanvas
+              // is reachable by flipping this back to false (default).
+              useGl: true,
               // Default DeveloperLogger() emits to dart:developer. The
               // explicit pass keeps this demo self-documenting: every
               // pipeline stage (load / convert / engine / visibility /

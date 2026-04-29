@@ -33,6 +33,7 @@ class Lottie extends StatefulWidget {
     required this.repeat,
     required this.reverse,
     this.renderScale = 1.0,
+    this.useGl = false,
     this.onLoaded,
   });
 
@@ -42,6 +43,13 @@ class Lottie extends StatefulWidget {
   final bool animate;
   final bool repeat;
   final bool reverse;
+
+  /// Sprint 6 GL toggle (experimental). See
+  /// [ThorvgController.create] for tradeoffs — default `false` keeps
+  /// the SmartRender SwCanvas path that handles static/list use cases
+  /// best; flip per-instance for compositions where SwCanvas saturates
+  /// the producer thread.
+  final bool useGl;
 
   /// Multiplier applied to the logical widget size when sizing the native
   /// rasterization buffer. The thorvg SwCanvas runs on the CPU, so cost
@@ -124,6 +132,7 @@ class Lottie extends StatefulWidget {
     bool? repeat,
     bool? reverse,
     double? renderScale,
+    bool useGl = false,
     void Function(ThorvgController)? onLoaded,
   }) {
     return Lottie(
@@ -135,6 +144,7 @@ class Lottie extends StatefulWidget {
       repeat: repeat ?? true,
       reverse: reverse ?? false,
       renderScale: renderScale ?? 1.0,
+      useGl: useGl,
       onLoaded: onLoaded,
     );
   }
@@ -269,6 +279,7 @@ class _LottieState extends State<Lottie> {
         animate: widget.animate,
         repeat: widget.repeat,
         reverse: widget.reverse,
+        useGl: widget.useGl,
       );
     } on PlatformException catch (e) {
       if (gen != _loadGen || !mounted) return;

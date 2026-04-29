@@ -53,6 +53,7 @@ class AnimSvgView extends StatefulWidget {
     this.disposeWhenInvisible = true,
     this.disposeDelay = const Duration(milliseconds: 700),
     this.showDelay = const Duration(milliseconds: 150),
+    this.useGl = false,
   }) : assert(svgLoader != null || lottieBytesLoader != null,
             'Exactly one of svgLoader or lottieBytesLoader must be provided');
 
@@ -76,6 +77,7 @@ class AnimSvgView extends StatefulWidget {
     bool disposeWhenInvisible = true,
     Duration disposeDelay = const Duration(milliseconds: 700),
     Duration showDelay = const Duration(milliseconds: 150),
+    bool useGl = false,
   }) {
     return AnimSvgView._(
       key: key,
@@ -98,6 +100,7 @@ class AnimSvgView extends StatefulWidget {
       disposeWhenInvisible: disposeWhenInvisible,
       disposeDelay: disposeDelay,
       showDelay: showDelay,
+      useGl: useGl,
     );
   }
 
@@ -121,6 +124,7 @@ class AnimSvgView extends StatefulWidget {
     bool disposeWhenInvisible = true,
     Duration disposeDelay = const Duration(milliseconds: 700),
     Duration showDelay = const Duration(milliseconds: 150),
+    bool useGl = false,
   }) {
     return AnimSvgView._(
       key: key,
@@ -143,6 +147,7 @@ class AnimSvgView extends StatefulWidget {
       disposeWhenInvisible: disposeWhenInvisible,
       disposeDelay: disposeDelay,
       showDelay: showDelay,
+      useGl: useGl,
     );
   }
 
@@ -174,6 +179,7 @@ class AnimSvgView extends StatefulWidget {
     bool disposeWhenInvisible = true,
     Duration disposeDelay = const Duration(milliseconds: 700),
     Duration showDelay = const Duration(milliseconds: 150),
+    bool useGl = false,
   }) {
     final effectiveLoader = loader ??
         NetworkSvgLoader(
@@ -201,6 +207,7 @@ class AnimSvgView extends StatefulWidget {
       disposeWhenInvisible: disposeWhenInvisible,
       disposeDelay: disposeDelay,
       showDelay: showDelay,
+      useGl: useGl,
     );
   }
 
@@ -275,6 +282,14 @@ class AnimSvgView extends StatefulWidget {
   /// native handle. Symmetric debounce that suppresses native creates for
   /// items the user only fleetingly scrolls past.
   final Duration showDelay;
+
+  /// Sprint 6 GL toggle (experimental). When `true` the native bridge
+  /// constructs the C++ thorvg side around `tvg::GlCanvas` and routes
+  /// rendering through ANGLE-Metal (iOS) / native EGL (Android).
+  /// Default `false` keeps the SmartRender SwCanvas path that handles
+  /// static backgrounds and list scenarios best. Flip to `true` for
+  /// compositions where the SW path is genuinely CPU-bound.
+  final bool useGl;
 
   @override
   State<AnimSvgView> createState() => _AnimSvgViewState();
@@ -565,6 +580,7 @@ class _AnimSvgViewState extends State<AnimSvgView> implements AnimSvgBinding {
                       repeat: widget.repeat,
                       reverse: false,
                       renderScale: widget.renderScale,
+                      useGl: widget.useGl,
                       onLoaded: (engine) {
                         _engine = engine;
                         _log.info('widget.engine', 'thorvg loaded',
