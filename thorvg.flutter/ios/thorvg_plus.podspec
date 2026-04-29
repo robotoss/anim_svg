@@ -87,6 +87,13 @@ Pod::Spec.new do |s|
     'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
     'GCC_PREPROCESSOR_DEFINITIONS'         => '$(inherited) TVG_STATIC=1',
     'OTHER_CPLUSPLUSFLAGS'                 => '$(inherited) -fno-exceptions -fno-rtti -fno-math-errno -fvisibility=hidden -fvisibility-inlines-hidden -w',
+    # vendored_frameworks gets libEGL / libGLESv2 onto the consumer's
+    # link line (Runner.app), but the pod's own framework build link
+    # step doesn't inherit that — we have to declare it explicitly here.
+    # Without these flags AngleRenderContext.mm leaves undefined refs
+    # to ANGLE EGL functions that the linker rejects at thorvg_plus.framework
+    # link time even before Runner.app links thorvg_plus.framework.
+    'OTHER_LDFLAGS'                        => '$(inherited) -framework libEGL -framework libGLESv2',
     'HEADER_SEARCH_PATHS'                  => [
       '$(inherited)',
       '"${PODS_TARGET_SRCROOT}"',

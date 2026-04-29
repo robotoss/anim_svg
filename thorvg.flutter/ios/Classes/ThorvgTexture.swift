@@ -46,6 +46,12 @@ final class ThorvgTexture: NSObject, FlutterTexture {
     private let repeats: Bool
     private let reverse: Bool
     private let speed: Double
+    /// GL backend opt-in (sprint 6). When `true` the bridge constructs
+    /// a TvgLottieAnimation around `tvg::GlCanvas` and routes per-frame
+    /// rendering through ANGLE-Metal + IOSurface, bypassing the
+    /// `vImagePermuteChannels_ARGB8888` swizzle in `ThorvgBridge.mm`.
+    /// Default `false` (SmartRender SwCanvas) keeps existing behaviour.
+    private let useGl: Bool
 
     private let queue: DispatchQueue
     private var timer: DispatchSourceTimer?
@@ -69,7 +75,8 @@ final class ThorvgTexture: NSObject, FlutterTexture {
         animate: Bool,
         repeats: Bool,
         reverse: Bool,
-        speed: Double
+        speed: Double,
+        useGl: Bool
     ) {
         self.registry = registry
         self.initialData = data
@@ -80,6 +87,7 @@ final class ThorvgTexture: NSObject, FlutterTexture {
         self.reverse = reverse
         self.speed = speed
         self.queue = queue
+        self.useGl = useGl
         super.init()
     }
 
@@ -166,7 +174,7 @@ final class ThorvgTexture: NSObject, FlutterTexture {
     // MARK: Init on queue
 
     private func initOnQueue() throws {
-        let h = ThorvgBridge.create()
+        let h = useGl ? ThorvgBridge.createGl() : ThorvgBridge.create()
         if h == 0 {
             throw ThorvgTextureError.nativeCreateFailed
         }
@@ -264,19 +272,37 @@ final class ThorvgTexture: NSObject, FlutterTexture {
             return
         }
 
-        CVPixelBufferLockBaseAddress(pixelBuffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
-        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
-        let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-
-        let ok = ThorvgBridge.renderFrame(
-            nativeHandle,
-            frameNo: rounded,
-            width: Int32(renderWidth),
-            height: Int32(renderHeight),
-            intoBuffer: base,
-            rowBytes: rowBytes
-        )
+        let ok: Bool
+        if useGl {
+            // GL path: ANGLE writes BGRA directly into the IOSurface
+            // backing the CVPixelBuffer via Metal — no CPU lock, no
+            // base-address access, no vImage swizzle. ThorvgBridge
+            // wraps bindPixelBuffer + makeCurrent + setGlContext +
+            // frame/update/render + present in one call.
+            // Swift auto-renames the trailing `intoPixelBuffer:` selector
+            // chunk to `into:` per Apple's "remove redundant type info"
+            // import rule.
+            ok = ThorvgBridge.renderFrameGl(
+                nativeHandle,
+                frameNo: rounded,
+                into: pixelBuffer
+            )
+        } else {
+            CVPixelBufferLockBaseAddress(pixelBuffer, [])
+            defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+            guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+                return
+            }
+            let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
+            ok = ThorvgBridge.renderFrame(
+                nativeHandle,
+                frameNo: rounded,
+                width: Int32(renderWidth),
+                height: Int32(renderHeight),
+                intoBuffer: base,
+                rowBytes: rowBytes
+            )
+        }
         if !ok { return }
 
         bufferLock.lock()
@@ -331,6 +357,7 @@ final class ThorvgTexture: NSObject, FlutterTexture {
         repeats: Bool,
         reverse: Bool,
         speed: Double,
+        useGl: Bool = false,
         completion: @escaping (Result<ThorvgTexture, Error>) -> Void
     ) {
         let tex = ThorvgTexture(
@@ -342,7 +369,8 @@ final class ThorvgTexture: NSObject, FlutterTexture {
             animate: animate,
             repeats: repeats,
             reverse: reverse,
-            speed: speed
+            speed: speed,
+            useGl: useGl
         )
         tex.textureId = registry.register(tex)
         tex.queue.async {

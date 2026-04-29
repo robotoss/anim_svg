@@ -81,6 +81,9 @@ public class ThorvgPlusPlugin: NSObject, FlutterPlugin {
         let repeats = (args["repeat"] as? NSNumber)?.boolValue ?? true
         let reverse = (args["reverse"] as? NSNumber)?.boolValue ?? false
         let speed = (args["speed"] as? NSNumber)?.doubleValue ?? 1.0
+        // Sprint 6 GL toggle. Default false preserves the SmartRender SW
+        // path for callers that don't pass the flag.
+        let useGl = (args["useGl"] as? NSNumber)?.boolValue ?? false
 
         // Run all native init (Initializer::init / SwCanvas::gen / load) on
         // the plugin's shared render queue. Reply over MethodChannel from
@@ -94,7 +97,8 @@ public class ThorvgPlusPlugin: NSObject, FlutterPlugin {
             animate: animate,
             repeats: repeats,
             reverse: reverse,
-            speed: speed
+            speed: speed,
+            useGl: useGl
         ) { [weak self] texResult in
             switch texResult {
             case .success(let texture):
