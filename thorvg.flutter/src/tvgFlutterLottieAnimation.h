@@ -37,7 +37,26 @@ extern "C"
 #endif
 
 
+// Existing SW path: SwCanvas + heap buffer the bridge memcpy's into the
+// platform surface. Backwards compatible — render() returns the buffer.
 TVG_FFI_EXPORT FlutterLottieAnimation* create();
+
+// GL path (sprint 6, hybrid toggle): GlCanvas backed by an EGL context the
+// bridge owns. Requirements:
+//  1. Bridge must call set_gl_context(...) BEFORE load() / resize() so the
+//     first GlCanvas::target(...) inside resize() has valid opaque handles.
+//  2. The EGL context MUST be current on the calling thread for every
+//     load / update / render / resize call (target / draw / sync touch GL
+//     state on whatever context is bound right now).
+//  3. render() returns nullptr in GL mode — the FBO is the output surface,
+//     no CPU buffer exists.
+// All other methods (load, update, render, resize, frame, ...) work
+// identically in both modes; the engine is selected once at create time
+// and never changes.
+TVG_FFI_EXPORT FlutterLottieAnimation* create_gl();
+TVG_FFI_EXPORT void set_gl_context(FlutterLottieAnimation* animation,
+                                   void* display, void* surface, void* context);
+
 TVG_FFI_EXPORT bool destroy(FlutterLottieAnimation* animation);
 TVG_FFI_EXPORT const char* error(FlutterLottieAnimation* animation);
 TVG_FFI_EXPORT float* size(FlutterLottieAnimation* animation);

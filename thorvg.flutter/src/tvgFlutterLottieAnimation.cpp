@@ -33,13 +33,43 @@ class __attribute__((visibility("default"))) TvgLottieAnimation
 public:
     ~TvgLottieAnimation()
     {
-        free(buffer);
+        // GL canvas owns no CPU buffer (the FBO is the output); only free
+        // for the SW path. Initializer::term is refcounted globally either
+        // way, so calling it here is correct in both modes.
+        if (!useGl) free(buffer);
         Initializer::term();
     }
 
     static TvgLottieAnimation* create()
     {
-        return new TvgLottieAnimation();
+        return new TvgLottieAnimation(/*useGl*/false);
+    }
+
+    static TvgLottieAnimation* create_gl()
+    {
+        return new TvgLottieAnimation(/*useGl*/true);
+    }
+
+    // Bridge calls this after creating the EGL/ANGLE context but BEFORE
+    // load() so the resize() inside load() has valid opaque handles to
+    // pass into GlCanvas::target. Re-issues target() if the size is
+    // already known so a swap of the surface (e.g. SurfaceProducer
+    // recreation on Android) doesn't strand the canvas.
+    //
+    // The EGL context MUST be current on the calling thread; GlCanvas::
+    // target touches GL state at call time.
+    void setGlContext(void* display, void* surface, void* context)
+    {
+        glDisplay = display;
+        glSurface = surface;
+        glContext = context;
+        if (useGl && canvas && width > 0 && height > 0)
+        {
+            canvas->sync();
+            static_cast<GlCanvas*>(canvas)->target(
+                glDisplay, glSurface, glContext, /*fbo*/0,
+                width, height, ColorSpace::ABGR8888S);
+        }
     }
 
     bool load(char* data, char* mimetype, int width, int height)
@@ -106,7 +136,11 @@ public:
         if (!canvas || !animation)
             return nullptr;
 
-        if (!updated)
+        // SW path: short-circuit only when nothing changed. GL path
+        // always draws — the FBO is consumed by eglSwapBuffers (Android)
+        // or eglWaitGL + textureFrameAvailable (iOS), and skipping a
+        // draw would publish a stale frame to Flutter's compositor.
+        if (!updated && !useGl)
             return buffer;
 
         if (canvas->draw(true) != Result::Success)
@@ -119,7 +153,9 @@ public:
 
         updated = false;
 
-        return buffer;
+        // GL path has no CPU buffer to return — the FBO is the output.
+        // Bridge ignores the return value in GL mode (sees nullptr).
+        return useGl ? nullptr : buffer;
     }
 
     float* size()
@@ -137,8 +173,25 @@ public:
         width = w;
         height = h;
 
-        buffer = (uint8_t*)realloc(buffer, width * height * sizeof(uint32_t));
-        canvas->target((uint32_t*)buffer, width, width, height, ColorSpace::ABGR8888S);
+        if (useGl)
+        {
+            // FBO 0 = the EGL window surface (Android) or the IOSurface
+            // pbuffer (iOS, ANGLE) the bridge made current. Bridge MUST
+            // have set both context and current binding before this call.
+            // No CPU buffer in GL mode.
+            if (glDisplay && glSurface && glContext)
+            {
+                static_cast<GlCanvas*>(canvas)->target(
+                    glDisplay, glSurface, glContext, /*fbo*/0,
+                    width, height, ColorSpace::ABGR8888S);
+            }
+        }
+        else
+        {
+            buffer = (uint8_t*)realloc(buffer, width * height * sizeof(uint32_t));
+            static_cast<SwCanvas*>(canvas)->target(
+                (uint32_t*)buffer, width, width, height, ColorSpace::ABGR8888S);
+        }
 
         float scale;
         float shiftX = 0.0f, shiftY = 0.0f;
@@ -192,7 +245,7 @@ public:
     }
 
 private:
-    explicit TvgLottieAnimation()
+    explicit TvgLottieAnimation(bool useGlEngine) : useGl(useGlEngine)
     {
         errorMsg = NoError;
 
@@ -205,19 +258,35 @@ private:
         //
         // 4 is a deliberate cap: too high adds task-dispatch overhead for
         // small (<= 1 MPix) frames, too low loses parallelism on the slow
-        // SwCanvas path.
+        // SwCanvas path. The GL path benefits from the worker threads as
+        // well — thorvg's GlRenderer tessellates beziers on the CPU
+        // before dispatching to GPU, and that tessellation parallelises.
         if (Initializer::init(4) != Result::Success)
         {
             errorMsg = "init() fail";
             return;
         }
 
-        // EngineOption::SmartRender enables thorvg's partial-redraw path,
-        // gated by THORVG_PARTIAL_RENDER_SUPPORT in config.h. For mostly-
-        // static compositions (slot-machine style logos with small moving
-        // elements) this avoids re-rasterizing the unchanged background
-        // every frame, which is the common case in our list scenarios.
-        canvas = SwCanvas::gen(EngineOption::SmartRender);
+        if (useGl)
+        {
+            // EngineOption::SmartRender is silently ignored on GlCanvas
+            // (tvgCanvas.cpp:209 logs a warning + falls through). For
+            // dynamic compositions the GPU still beats SW; for mostly-
+            // static logos the consumer should opt back into the SW
+            // engine via create() and skip set_gl_context entirely.
+            canvas = GlCanvas::gen();
+        }
+        else
+        {
+            // EngineOption::SmartRender enables thorvg's partial-redraw
+            // path, gated by THORVG_PARTIAL_RENDER_SUPPORT in config.h.
+            // For mostly-static compositions (slot-machine style logos
+            // with small moving elements) this avoids re-rasterizing the
+            // unchanged background every frame, which is the common case
+            // in list scenarios — and the reason create() (SW) is still
+            // the default in sprint 6.
+            canvas = SwCanvas::gen(EngineOption::SmartRender);
+        }
         if (!canvas) errorMsg = "Invalid canvas";
 
         animation = Animation::gen();
@@ -226,13 +295,22 @@ private:
 
 private:
     const char* errorMsg;
-    SwCanvas* canvas = nullptr;
+    // Base pointer so the same field holds either SwCanvas* or GlCanvas*;
+    // call sites that touch the engine-specific target() overload must
+    // static_cast based on `useGl`.
+    Canvas* canvas = nullptr;
     Animation* animation = nullptr;
-    uint8_t* buffer = nullptr;
+    uint8_t* buffer = nullptr;       // SW only — heap raster output
     uint32_t width = 0;
     uint32_t height = 0;
     float psize[2]; // picture size
     bool updated = false;
+    const bool useGl = false;
+    // GL only — opaque EGL/ANGLE handles set via setGlContext() before
+    // the first resize. Both Sw and Gl modes ignore these unless useGl.
+    void* glDisplay = nullptr;
+    void* glSurface = nullptr;
+    void* glContext = nullptr;
 };
 
 #ifdef __cplusplus
@@ -243,6 +321,19 @@ extern "C"
     FlutterLottieAnimation* create()
     {
         return (FlutterLottieAnimation*)TvgLottieAnimation::create();
+    }
+
+    FlutterLottieAnimation* create_gl()
+    {
+        return (FlutterLottieAnimation*)TvgLottieAnimation::create_gl();
+    }
+
+    void set_gl_context(FlutterLottieAnimation* animation,
+                        void* display, void* surface, void* context)
+    {
+        if (!animation) return;
+        reinterpret_cast<TvgLottieAnimation*>(animation)
+            ->setGlContext(display, surface, context);
     }
 
     bool destroy(FlutterLottieAnimation* animation)
