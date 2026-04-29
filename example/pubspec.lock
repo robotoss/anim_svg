@@ -7,7 +7,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.0.4"
+    version: "0.0.5"
   archive:
     dependency: transitive
     description:
@@ -532,7 +532,7 @@ packages:
       path: "../thorvg.flutter"
       relative: true
     source: path
-    version: "1.1.0"
+    version: "1.1.1"
   typed_data:
     dependency: transitive
     description:
