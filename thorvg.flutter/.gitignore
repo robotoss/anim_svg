@@ -31,7 +31,10 @@ pubspec.lock
 
 # Generated binaries
 android/src/main/jniLibs/
-ios/Frameworks/
+# ios/Frameworks/ — used to be ignored when only build artifacts lived
+# here; sprint 5 of the GL migration vendors libEGL.xcframework /
+# libGLESv2.xcframework (ANGLE Metal binaries from Knightro63/flutter_angle,
+# MIT) under that path so it must stay tracked.
 
 # Generated android build files(.cxx)
 android/app/.cxx

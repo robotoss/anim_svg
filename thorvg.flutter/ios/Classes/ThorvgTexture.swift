@@ -11,9 +11,18 @@ enum ThorvgTextureError: Error {
 /// One Lottie animation, rendered into a Flutter `Texture(textureId)` on iOS.
 ///
 /// **Threading invariant**: every C++ call for a given instance runs on the
-/// texture's own serial `DispatchQueue`. thorvg's per-instance state
-/// (canvas, animation, picture, scratch buffers) is not safe to touch from
-/// a thread other than the one that allocated it.
+/// `queue` passed in via [createAsync] — in production that is the single
+/// shared `io.thorvg.render` `DispatchQueue` owned by `ThorvgPlusPlugin`
+/// (see ThorvgPlusPlugin.swift:26). thorvg's global engine state
+/// (Initializer refcount, LoaderMgr) and its per-instance state (canvas,
+/// animation, picture, scratch buffers) all reach C++ from this one
+/// serial queue, so cross-instance races cannot happen.
+///
+/// Why shared (not per-texture): the upcoming GL path (sprint 6) keeps a
+/// single shared `EGLDisplay` + `EGLContext` (via AngleRenderContext) so
+/// thorvg's GlRenderer shader cache amortizes across all textures. A
+/// shared serial render queue is the prerequisite — two queues racing on
+/// `eglMakeCurrent` against the same context is undefined.
 ///
 /// Use [ThorvgTexture.createAsync] to construct: the texture is registered
 /// with the Flutter texture registry synchronously to obtain a `textureId`,

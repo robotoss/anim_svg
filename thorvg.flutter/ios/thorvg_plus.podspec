@@ -57,10 +57,28 @@ Pod::Spec.new do |s|
   ]
   s.libraries = ['c++', 'z']
 
-  # Accelerate provides vImagePermuteChannels_ARGB8888 used in
-  # ThorvgBridge.mm to swizzle thorvg's ABGR8888 output into BGRA8888
-  # for the CVPixelBuffer.
-  s.frameworks = ['Accelerate']
+  # System frameworks:
+  # - Accelerate: vImagePermuteChannels_ARGB8888 in ThorvgBridge.mm,
+  #   used by the SW path; sprint 6 drops it once the GL path is
+  #   wired and the swizzle moves into the IOSurface BGRA_EXT binding.
+  # - CoreVideo + IOSurface: required by AngleRenderContext.mm
+  #   (CVPixelBufferGetIOSurface, EGL_IOSURFACE_ANGLE).
+  # - Metal + QuartzCore: ANGLE's Metal backend pulls these for
+  #   MTLDevice / MTLCommandQueue / IOSurface-Metal interop.
+  s.frameworks = ['Accelerate', 'CoreVideo', 'IOSurface', 'Metal', 'QuartzCore']
+
+  # Prebuilt ANGLE binaries (Metal backend, GLES 2/3 + EGL 1.4),
+  # extracted from Knightro63/flutter_angle (MIT — see
+  # Frameworks/FLUTTER_ANGLE_LICENSE). Vendored as xcframeworks so
+  # Xcode picks the correct slice per build target (ios-arm64,
+  # ios-arm64_x86_64-simulator, macos-arm64_x86_64). Sprint 5 wires
+  # AngleRenderContext.mm against eglGetPlatformDisplayEXT +
+  # eglCreatePbufferFromClientBuffer; sprint 6 routes thorvg's
+  # GlCanvas through the resulting context.
+  s.vendored_frameworks = [
+    'Frameworks/libEGL.xcframework',
+    'Frameworks/libGLESv2.xcframework',
+  ]
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE'                       => 'YES',
