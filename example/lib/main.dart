@@ -2,6 +2,8 @@ import 'package:anim_svg/anim_svg.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+import 'perf_overlay.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
@@ -31,7 +33,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final itemCount = _baseAssets.length * _repeatCount;
     return MaterialApp(
-      home: Scaffold(
+      home: PerfOverlay(
+        child: Scaffold(
         appBar: AppBar(title: const Text('anim_svg demo')),
         body: ListView.separated(
           padding: const EdgeInsets.all(_gap),
@@ -45,6 +48,7 @@ class MyApp extends StatelessWidget {
               height: _cellHeight,
             );
           },
+        ),
         ),
       ),
     );
